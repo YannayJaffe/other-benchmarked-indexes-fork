@@ -880,7 +880,7 @@ void generate_ycsb_workload(dataset_t* dataset, string_kv** kvs, ycsb_workload* 
 	}
 }
 
-void ycsb(char* dataset_name, const ycsb_workload_spec* spec) {
+void ycsb(char* dataset_name, const ycsb_workload_spec* spec, const char* exp_name) {
 	struct timespec start_time;
 	struct timespec end_time;
 	ycsb_thread_ctx ctx;
@@ -910,9 +910,7 @@ void ycsb(char* dataset_name, const ycsb_workload_spec* spec) {
 	ctx.thread_contexts = &ctx;
 
 	// Fill the tree
-	for (i = 0; i < ctx.workload.initial_num_keys; i++) {
-		trie.insert(kvs[i]);
-	}
+    insert_kvs(trie, kvs, ctx.workload.initial_num_keys);
 
 	// Perform YCSB ops
 	notify_critical_section_start();
@@ -921,7 +919,7 @@ void ycsb(char* dataset_name, const ycsb_workload_spec* spec) {
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	notify_critical_section_end();
 	float time_took = time_diff(&end_time, &start_time);
-	report(time_took, spec->num_ops);
+	report(exp_name, time_took, spec->num_ops);
 }
 
 void* ycsb_thread(void* arg) {
@@ -930,7 +928,7 @@ void* ycsb_thread(void* arg) {
 	return NULL;
 }
 
-void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int num_threads) {
+void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int num_threads, const char* exp_name) {
 	uint64_t i;
 	int result;
 	dataset_t dataset;
@@ -960,9 +958,7 @@ void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int nu
 	}
 
 	// Fill the tree
-	for (i = 0; i < thread_contexts[0].workload.initial_num_keys; i++) {
-		trie.insert(kvs[i]);
-	}
+    insert_kvs_mt(trie, kvs, thread_contexts[0].workload.initial_num_keys);
 
 	// Perform YCSB ops
 	notify_critical_section_start();
@@ -971,7 +967,7 @@ void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int nu
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	notify_critical_section_end();
 	float time_took = time_diff(&end_time, &start_time);
-	report_mt(time_took, spec->num_ops * num_threads, num_threads);
+	report_mt(exp_name, time_took, spec->num_ops * num_threads, num_threads);
 }
 
 const flag_spec_t FLAGS[] = {
@@ -992,6 +988,7 @@ int main(int argc, char** argv) {
 	ycsb_workload_spec ycsb_workload;
 	int is_ycsb = 0;
 	int is_mt_ycsb = 0;
+	const char* ycsb_exp_name;
 	args_t* args = parse_args((flag_spec_t*) FLAGS, argc, argv);
 
 	if (args == NULL) {
@@ -1069,61 +1066,73 @@ int main(int argc, char** argv) {
 	if (!strcmp(test_name, "ycsb-a")) {
 		ycsb_workload = YCSB_A_SPEC;
 		is_ycsb = 1;
+		ycsb_exp_name = "ycsb-a HOT";
 	}
 	if (!strcmp(test_name, "ycsb-b")) {
 		ycsb_workload = YCSB_B_SPEC;
 		is_ycsb = 1;
+        ycsb_exp_name = "ycsb-b HOT";
 	}
 	if (!strcmp(test_name, "ycsb-c")) {
 		ycsb_workload = YCSB_C_SPEC;
 		is_ycsb = 1;
+        ycsb_exp_name = "ycsb-c HOT";
 	}
 	if (!strcmp(test_name, "ycsb-d")) {
 		ycsb_workload = YCSB_D_SPEC;
 		is_ycsb = 1;
+        ycsb_exp_name = "ycsb-d HOT";
 	}
 	if (!strcmp(test_name, "ycsb-e")) {
 		ycsb_workload = YCSB_E_SPEC;
 		is_ycsb = 1;
+        ycsb_exp_name = "ycsb-e HOT";
 	}
 	if (!strcmp(test_name, "ycsb-f")) {
 		ycsb_workload = YCSB_F_SPEC;
 		is_ycsb = 1;
+        ycsb_exp_name = "ycsb-f HOT";
 	}
 	if (!strcmp(test_name, "mt-ycsb-a")) {
 		ycsb_workload = YCSB_A_SPEC;
 		is_mt_ycsb = 1;
+        ycsb_exp_name = "mt-ycsb-a HOT";
 	}
 	if (!strcmp(test_name, "mt-ycsb-b")) {
 		ycsb_workload = YCSB_B_SPEC;
 		is_mt_ycsb = 1;
+        ycsb_exp_name = "mt-ycsb-b HOT";
 	}
 	if (!strcmp(test_name, "mt-ycsb-c")) {
 		ycsb_workload = YCSB_C_SPEC;
 		is_mt_ycsb = 1;
+        ycsb_exp_name = "mt-ycsb-c HOT";
 	}
 	if (!strcmp(test_name, "mt-ycsb-d")) {
 		ycsb_workload = YCSB_D_SPEC;
 		is_mt_ycsb = 1;
+        ycsb_exp_name = "mt-ycsb-d HOT";
 	}
 	if (!strcmp(test_name, "mt-ycsb-e")) {
 		ycsb_workload = YCSB_E_SPEC;
 		is_mt_ycsb = 1;
+        ycsb_exp_name = "mt-ycsb-e HOT";
 	}
 	if (!strcmp(test_name, "mt-ycsb-f")) {
 		ycsb_workload = YCSB_F_SPEC;
 		is_mt_ycsb = 1;
+        ycsb_exp_name = "mt-ycsb-f HOT";
 	}
 	if ((is_ycsb || is_mt_ycsb) && has_flag(args, "--ycsb-uniform-dist"))
 		ycsb_workload.distribution = DIST_UNIFORM;
 
 	if (is_ycsb) {
-		ycsb(dataset_name, &ycsb_workload);
+		ycsb(dataset_name, &ycsb_workload, ycsb_exp_name);
 		return 0;
 	}
 
 	if (is_mt_ycsb) {
-		mt_ycsb(dataset_name, &ycsb_workload, num_threads);
+		mt_ycsb(dataset_name, &ycsb_workload, num_threads, ycsb_exp_name);
 		return 0;
 	}
 
