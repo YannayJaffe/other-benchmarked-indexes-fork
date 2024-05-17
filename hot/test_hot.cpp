@@ -123,13 +123,13 @@ void load_dataset(char* dataset_name) {
 	printf("Reading dataset...\n");
 	keys = read_string_dataset(&dataset);
 
-	printf("Validating...\n");
-	for (i = 0;i < dataset.num_keys;i++) {
-		if (memchr(keys[i].bytes, 0, keys[i].size)) {
-			printf("Invalid dataset. Key #%lu contains NULL byte.\n", i);
-			return;
-		}
-	}
+//	printf("Validating...\n");
+//	for (i = 0;i < dataset.num_keys;i++) {
+//		if (memchr(keys[i].bytes, 0, keys[i].size)) {
+//			printf("Invalid dataset. Key #%lu contains NULL byte.\n", i);
+//			return;
+//		}
+//	}
 
 	printf("Loading...\n");
 	notify_critical_section_start();
@@ -142,8 +142,7 @@ void load_dataset(char* dataset_name) {
 	notify_critical_section_end();
 
 	float time_took = time_diff(&end_time, &start_time);
-	printf("Took %.2fs (%.0fns/key)\n", time_took, time_took / dataset.num_keys * 1.0e9);
-	printf("RESULT: ops=%lu ms=%d\n", dataset.num_keys, (int)(time_took * 1000));
+    report("insert HOT", time_took, dataset.num_keys);
 }
 
 void insert_keys(string_hot_t& trie, ct_key* keys, uint64_t num_keys) {
@@ -440,10 +439,15 @@ void mt_insert(char* dataset_name, unsigned int num_threads) {
 
 	for (i = 0; i < num_threads; i++) {
 		uint64_t start_key = (dataset.num_keys * i) / num_threads;
-		uint64_t end_key = (dataset.num_keys * (i+1)) / num_threads;
+		uint64_t end_key;
+		if (i<num_threads-1){
+            end_key = (dataset.num_keys * (i+1)) / num_threads;
+		} else {
+		    end_key = dataset.num_keys;
+		}
 		thread_contexts[i].num_keys = end_key - start_key;
 		thread_contexts[i].keys = &(keys[start_key]);
-		thread_contexts[i].trie = &trie;
+		thread_contexts[i].string_trie = &trie;
 	}
 
 	printf("Inserting...\n");
@@ -452,7 +456,7 @@ void mt_insert(char* dataset_name, unsigned int num_threads) {
 	for (i = 0; i < num_threads; i++) {
 		result = pthread_create(&(thread_ids[i]), NULL, mt_insert_thread, &(thread_contexts[i]));
 		if (result != 0) {
-			printf("Failed to cerate thread\n");
+			printf("Error: Failed to create thread\n");
 			return;
 		}
 	}
@@ -460,13 +464,13 @@ void mt_insert(char* dataset_name, unsigned int num_threads) {
 	for (i = 0; i < num_threads; i++) {
 		result = pthread_join(thread_ids[i], NULL);
 		if (result != 0) {
-			printf("Failed to join thread\n");
+			printf("Error: Failed to join thread\n");
 			return;
 		}
 	}
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	float time_took = time_diff(&end_time, &start_time);
-	report_mt(time_took, dataset.num_keys, num_threads);
+	report_mt("mt-insert HOT", time_took, dataset.num_keys, num_threads);
 }
 
 void read_ranges(string_hot_t* trie, ct_key* keys, uint64_t num_keys, uint64_t num_ranges, uint64_t max_range_size) {
