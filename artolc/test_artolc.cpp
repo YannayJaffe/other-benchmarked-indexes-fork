@@ -115,7 +115,7 @@ void *mt_insert_thread(void *arg) {
 void load_kvs_mt(ART_OLC::Tree& tree, kv_t **kv_ptrs, uint64_t num_keys) {
     auto num_threads = get_num_available_cpus();
     mt_insert_thread_ctx thread_contexts[num_threads];
-    for (i = 0; i < num_threads; i++) {
+    for (auto i = 0; i < num_threads; i++) {
         uint64_t first_kv = num_keys * i / num_threads;
         uint64_t last_kv;
         if (i < num_threads - 1) {
@@ -174,6 +174,7 @@ typedef struct {
     ART_OLC::Tree *tree;
     uint8_t *keys_buf;
     uint64_t num_keys;
+    bool false_queries;
 } mt_pos_lookup_ctx;
 
 void *mt_pos_lookup_thread(void *arg) {
@@ -190,8 +191,13 @@ void *mt_pos_lookup_thread(void *arg) {
         key.data = target_key->bytes;
         key.len = target_key->size;
         TID result = ctx->tree->lookup(key, thread_info);
-        if (result == 0) {
+        if (!ctx->false_queries && result == 0) {
             printf("Error: a key was not found!\n");
+            exit(1);
+            return NULL;
+        } else if(ctx->false_queries && result != 0){
+            printf("Error: a key was found but wasn't inserted!\n");
+            exit(1);
             return NULL;
         }
 
@@ -202,7 +208,7 @@ void *mt_pos_lookup_thread(void *arg) {
     return NULL;
 }
 
-void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
+void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt, bool false_queries) {
     const uint64_t lookups_per_thread = 10 * MILLION;
 
     uint64_t i, j;
@@ -215,8 +221,12 @@ void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt
     auto thread_info = tree.getThreadInfo();
 
     kv_ptrs = read_kvs(dataset, DEFAULT_VALUE_SIZE);
+    auto num_keys_to_load = dataset->num_keys;
+    if(false_queries) {
+        num_keys_to_load -= lookups_per_thread;
+    }
 
-    load_kvs_mt(tree, kv_ptrs, dataset->num_keys);
+    load_kvs_mt(tree, kv_ptrs, num_keys_to_load);
 
     printf("Creating workloads...\n");
     dynamic_buffer_init(&workloads_buf);
@@ -224,9 +234,16 @@ void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt
         thread_contexts[i].tree = &tree;
         thread_contexts[i].num_keys = lookups_per_thread;
         thread_contexts[i].keys_buf = (uint8_t *) workloads_buf.pos;
+        thread_contexts[i].false_queries = false_queries;
 
         for (j = 0; j < lookups_per_thread; j++) {
-            kv_t *kv = kv_ptrs[rand_uint64() % dataset->num_keys];
+            uint64_t key_idx;
+            if (false_queries) {
+                key_idx = dataset->num_keys - lookups_per_thread + (rand_uint64() % lookups_per_thread);
+            } else {
+                key_idx = rand_uint64() % dataset->num_keys;
+            }
+            kv_t *kv = kv_ptrs[key_idx];
             uint64_t data_size = sizeof(blob_t) + kv->key_size;
             uint64_t offset = dynamic_buffer_extend(&workloads_buf, data_size);
             blob_t *data = (blob_t *) (workloads_buf.ptr + offset);
@@ -244,10 +261,20 @@ void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt
     run_multiple_threads(mt_pos_lookup_thread, num_threads, thread_contexts, sizeof(mt_pos_lookup_ctx));
     float time_took = stopwatch_value(&timer);
     notify_critical_section_end();
-    if (is_mt) {
-        report_mt("mt-pos-lookup ART-OLC", time_took, lookups_per_thread * num_threads, num_threads);
+    const char* exp_name;
+    if (false_queries && is_mt){
+        exp_name = "mt-neg-lookup ART-OLC";
+    } else if (false_queries && !is_mt) {
+        exp_name = "neg-lookup ART-OLC";
+    } else if (!false_queries && is_mt){
+        exp_name = "mt-pos-lookup ART-OLC";
     } else {
-        report("pos-lookup ART-OLC", time_took, lookups_per_thread);
+        exp_name = "pos-lookup ART-OLC";
+    }
+    if (is_mt) {
+        report_mt(exp_name, time_took, lookups_per_thread * num_threads, num_threads);
+    } else {
+        report(exp_name, time_took, lookups_per_thread);
     }
 }
 
@@ -687,7 +714,12 @@ int main(int argc, char **argv) {
     }
 
     if (!strcmp(test_name, "pos-lookup") || !strcmp(test_name, "mt-pos-lookup")) {
-        test_mt_pos_lookup(&dataset, num_threads, is_mt);
+        test_mt_pos_lookup(&dataset, num_threads, is_mt, false);
+        return 0;
+    }
+
+    if (!strcmp(test_name, "neg-lookup") || !strcmp(test_name, "mt-neg-lookup")) {
+        test_mt_pos_lookup(&dataset, num_threads, is_mt, true);
         return 0;
     }
 
