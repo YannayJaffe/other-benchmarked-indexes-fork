@@ -112,6 +112,26 @@ void *mt_insert_thread(void *arg) {
     return NULL;
 }
 
+void load_kvs_mt(ART_OLC::Tree& tree, kv_t **kv_ptrs, uint64_t num_keys) {
+    auto num_threads = get_num_available_cpus();
+    mt_insert_thread_ctx thread_contexts[num_threads];
+    for (i = 0; i < num_threads; i++) {
+        uint64_t first_kv = num_keys * i / num_threads;
+        uint64_t last_kv;
+        if (i < num_threads - 1) {
+            last_kv = num_keys * (i + 1) / num_threads;
+        } else {
+            last_kv = num_keys;
+        }
+
+        thread_contexts[i].workload_buf = (uint8_t *) kv_ptrs[first_kv];
+        thread_contexts[i].num_keys = last_kv - first_kv;
+        thread_contexts[i].tree = &tree;
+    }
+    printf("Inserting...\n");
+    run_multiple_threads(mt_insert_thread, num_threads, thread_contexts, sizeof(mt_insert_thread_ctx));
+}
+
 void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
     uint64_t i;
     kv_t **kv_ptrs;
@@ -124,7 +144,12 @@ void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
 
     for (i = 0; i < num_threads; i++) {
         uint64_t first_kv = dataset->num_keys * i / num_threads;
-        uint64_t last_kv = dataset->num_keys * (i + 1) / num_threads;
+        uint64_t last_kv;
+        if (i < num_threads - 1) {
+            last_kv = dataset->num_keys * (i + 1) / num_threads;
+        } else {
+            last_kv = dataset->num_keys;
+        }
 
         thread_contexts[i].workload_buf = (uint8_t *) kv_ptrs[first_kv];
         thread_contexts[i].num_keys = last_kv - first_kv;
@@ -191,11 +216,7 @@ void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt
 
     kv_ptrs = read_kvs(dataset, DEFAULT_VALUE_SIZE);
 
-    printf("Inserting...\n");
-    for (i = 0; i < dataset->num_keys; i++) {
-        load_key((TID) kv_ptrs[i], key);
-        tree.insert(key, (TID) kv_ptrs[i], thread_info);
-    }
+    load_kvs_mt(tree, kv_ptrs, dataset->num_keys);
 
     printf("Creating workloads...\n");
     dynamic_buffer_init(&workloads_buf);

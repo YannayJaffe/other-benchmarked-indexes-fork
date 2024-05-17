@@ -565,3 +565,9 @@ void report(const char* exp_name, float duration, uint64_t num_ops) {
     printf("Took %.2fs (%.0fns/key)\n", duration, duration / num_ops * 1.0e9);
     printf("RESULT: ops=%lu ms=%d\n", num_ops, (int) (duration * 1000));
 }
+
+int get_num_available_cpus() {
+    cpu_set_t mask;
+    sched_getaffinity(0, sizeof(cpu_set_t), &mask);
+    return CPU_COUNT(&mask);
+}
