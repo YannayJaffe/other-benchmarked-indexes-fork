@@ -90,13 +90,13 @@ typedef struct {
     ART_OLC::Tree *tree;
     uint64_t num_keys;
     uint8_t *workload_buf;
-} mt_insert_thread_ctx;
+} mt_insert_delete_thread_ctx;
 
 void *mt_insert_thread(void *arg) {
     uint64_t i;
     Key kv_key;
     uint8_t *buf_pos;
-    mt_insert_thread_ctx *ctx = (mt_insert_thread_ctx *) arg;
+    mt_insert_delete_thread_ctx *ctx = (mt_insert_delete_thread_ctx *) arg;
 
     auto thread_info = ctx->tree->getThreadInfo();
     buf_pos = ctx->workload_buf;
@@ -112,9 +112,30 @@ void *mt_insert_thread(void *arg) {
     return NULL;
 }
 
+void *mt_delete_thread(void *arg) {
+    uint64_t i;
+    Key kv_key;
+    uint8_t *buf_pos;
+    mt_insert_delete_thread_ctx *ctx = (mt_insert_delete_thread_ctx *) arg;
+
+    auto thread_info = ctx->tree->getThreadInfo();
+    buf_pos = ctx->workload_buf;
+    for (i = 0; i < ctx->num_keys; i++) {
+        kv_t *kv = (kv_t *) buf_pos;
+
+        load_key((TID) kv, kv_key);   // Set kv_key to point to the key of <kv>
+        ctx->tree->remove(kv_key, (TID) kv, thread_info);
+        buf_pos += sizeof(kv_t) + kv->key_size + kv->value_size;
+        speculation_barrier();
+    }
+
+    return NULL;
+}
+
+
 void load_kvs_mt(ART_OLC::Tree& tree, kv_t **kv_ptrs, uint64_t num_keys) {
     auto num_threads = get_num_available_cpus();
-    mt_insert_thread_ctx thread_contexts[num_threads];
+    mt_insert_delete_thread_ctx thread_contexts[num_threads];
     for (auto i = 0; i < num_threads; i++) {
         uint64_t first_kv = num_keys * i / num_threads;
         uint64_t last_kv;
@@ -129,7 +150,7 @@ void load_kvs_mt(ART_OLC::Tree& tree, kv_t **kv_ptrs, uint64_t num_keys) {
         thread_contexts[i].tree = &tree;
     }
     printf("Inserting...\n");
-    run_multiple_threads(mt_insert_thread, num_threads, thread_contexts, sizeof(mt_insert_thread_ctx));
+    run_multiple_threads(mt_insert_thread, num_threads, thread_contexts, sizeof(mt_insert_delete_thread_ctx));
 }
 
 void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
@@ -137,7 +158,7 @@ void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
     kv_t **kv_ptrs;
     stopwatch_t timer;
     ART_OLC::Tree tree(load_key);
-    mt_insert_thread_ctx thread_contexts[num_threads];
+    mt_insert_delete_thread_ctx thread_contexts[num_threads];
 
     printf("Reading dataset...\n");
     kv_ptrs = read_kvs(dataset, DEFAULT_VALUE_SIZE);
@@ -159,7 +180,7 @@ void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
     printf("Inserting...\n");
     notify_critical_section_start();
     stopwatch_start(&timer);
-    run_multiple_threads(mt_insert_thread, num_threads, thread_contexts, sizeof(mt_insert_thread_ctx));
+    run_multiple_threads(mt_insert_thread, num_threads, thread_contexts, sizeof(mt_insert_delete_thread_ctx));
     float time_took = stopwatch_value(&timer);
     notify_critical_section_end();
 
@@ -167,6 +188,47 @@ void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
         report_mt("mt-insert ART_OLC", time_took, dataset->num_keys, num_threads);
     } else {
         report("insert ART-OLC", time_took, dataset->num_keys);
+    }
+}
+
+void test_mt_delete(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
+    uint64_t i;
+    kv_t **kv_ptrs;
+    stopwatch_t timer;
+    ART_OLC::Tree tree(load_key);
+    mt_insert_delete_thread_ctx thread_contexts[num_threads];
+
+    printf("Reading dataset...\n");
+    kv_ptrs = read_kvs(dataset, DEFAULT_VALUE_SIZE);
+
+    for (i = 0; i < num_threads; i++) {
+        uint64_t first_kv = dataset->num_keys * i / num_threads;
+        uint64_t last_kv;
+        if (i < num_threads - 1) {
+            last_kv = dataset->num_keys * (i + 1) / num_threads;
+        } else {
+            last_kv = dataset->num_keys;
+        }
+
+        thread_contexts[i].workload_buf = (uint8_t *) kv_ptrs[first_kv];
+        thread_contexts[i].num_keys = last_kv - first_kv;
+        thread_contexts[i].tree = &tree;
+    }
+
+    printf("Inserting...\n");
+    load_kvs_mt(tree, kv_ptrs, dataset->num_keys);
+    printf("Running deletions...\n");
+
+    notify_critical_section_start();
+    stopwatch_start(&timer);
+    run_multiple_threads(mt_delete_thread, num_threads, thread_contexts, sizeof(mt_insert_delete_thread_ctx));
+    float time_took = stopwatch_value(&timer);
+    notify_critical_section_end();
+
+    if (is_mt) {
+        report_mt("mt-delete ART_OLC", time_took, dataset->num_keys, num_threads);
+    } else {
+        report("delete ART-OLC", time_took, dataset->num_keys);
     }
 }
 
@@ -709,6 +771,12 @@ int main(int argc, char **argv) {
         test_mt_insert(&dataset, num_threads, is_mt);
         return 0;
     }
+
+    if (!strcmp(test_name, "delete") || !strcmp(test_name, "mt-delete")) {
+        test_mt_delete(&dataset, num_threads, is_mt);
+        return 0;
+    }
+
 
     if (!strcmp(test_name, "pos-lookup") || !strcmp(test_name, "mt-pos-lookup")) {
         test_mt_pos_lookup(&dataset, num_threads, is_mt, false);
