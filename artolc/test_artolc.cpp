@@ -34,7 +34,7 @@ typedef struct {
 // <tid> describes a key-value pair. Set <key> to the key of that pair.
 void load_key(TID tid, Key &key) {
     kv_t *kv = (kv_t *) tid;
-    key.set(reinterpret_cast<const char*>(kv->kv), kv->key_size);
+    key.set(reinterpret_cast<const char *>(kv->kv), kv->key_size);
 
     // Hack: ART_OLC expects the loadKey function to /copy/ the key data into <key>.
     // To save a memcpy call we instead /change the .data pointer/ of <key> to point
@@ -112,7 +112,7 @@ void *mt_insert_thread(void *arg) {
     return NULL;
 }
 
-void test_mt_insert(dataset_t *dataset, unsigned int num_threads) {
+void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
     uint64_t i;
     kv_t **kv_ptrs;
     stopwatch_t timer;
@@ -138,7 +138,11 @@ void test_mt_insert(dataset_t *dataset, unsigned int num_threads) {
     float time_took = stopwatch_value(&timer);
     notify_critical_section_end();
 
-    report_mt(time_took, dataset->num_keys, num_threads);
+    if (is_mt) {
+        report_mt("mt-insert ART_OLC", time_took, dataset->num_keys, num_threads);
+    } else {
+        report("insert ART-OLC", time_took, dataset->num_keys);
+    }
 }
 
 typedef struct {
@@ -173,7 +177,7 @@ void *mt_pos_lookup_thread(void *arg) {
     return NULL;
 }
 
-void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads) {
+void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
     const uint64_t lookups_per_thread = 10 * MILLION;
 
     uint64_t i, j;
@@ -219,8 +223,11 @@ void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads) {
     run_multiple_threads(mt_pos_lookup_thread, num_threads, thread_contexts, sizeof(mt_pos_lookup_ctx));
     float time_took = stopwatch_value(&timer);
     notify_critical_section_end();
-
-    report_mt(time_took, lookups_per_thread * num_threads, num_threads);
+    if (is_mt) {
+        report_mt("mt-pos-lookup ART-OLC", time_took, lookups_per_thread * num_threads, num_threads);
+    } else {
+        report("pos-lookup ART-OLC", time_took, lookups_per_thread);
+    }
 }
 
 void test_mem_usage(dataset_t *dataset) {
@@ -567,7 +574,8 @@ void *ycsb_thread(void *arg) {
     return NULL;
 }
 
-void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int num_threads) {
+void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int num_threads, const char *exp_name,
+               bool is_mt) {
     uint64_t i;
     Key key;
     kv_t **kv_ptrs;
@@ -602,7 +610,11 @@ void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int 
     float time_took = stopwatch_value(&timer);
     notify_critical_section_end();
 
-    report_mt(time_took, spec->num_ops * num_threads, num_threads);
+    if (is_mt) {
+        report_mt(exp_name, time_took, spec->num_ops * num_threads, num_threads);
+    } else {
+        report(exp_name, time_took, spec->num_ops);
+    }
 }
 
 const flag_spec_t FLAGS[] = {
@@ -618,6 +630,7 @@ int main(int argc, char **argv) {
     int num_threads;
     int is_ycsb = 0;
     char *test_name;
+    const char *ycsb_name;
     uint64_t dataset_size;
     dataset_t dataset;
     ycsb_workload_spec ycsb_spec;
@@ -648,12 +661,12 @@ int main(int argc, char **argv) {
     test_name = args->args[0];
 
     if (!strcmp(test_name, "insert") || !strcmp(test_name, "mt-insert")) {
-        test_mt_insert(&dataset, num_threads);
+        test_mt_insert(&dataset, num_threads, is_mt);
         return 0;
     }
 
     if (!strcmp(test_name, "pos-lookup") || !strcmp(test_name, "mt-pos-lookup")) {
-        test_mt_pos_lookup(&dataset, num_threads);
+        test_mt_pos_lookup(&dataset, num_threads, is_mt);
         return 0;
     }
 
@@ -665,38 +678,68 @@ int main(int argc, char **argv) {
     if (!strcmp(test_name, "ycsb-a") || !strcmp(test_name, "mt-ycsb-a")) {
         ycsb_spec = YCSB_A_SPEC;
         is_ycsb = 1;
+        if (is_mt) {
+            ycsb_name = "mt-ycsb-a ART-OLC";
+        } else {
+            ycsb_name = "ycsb-a ART-OLC";
+        }
     }
 
     if (!strcmp(test_name, "ycsb-b") || !strcmp(test_name, "mt-ycsb-b")) {
         ycsb_spec = YCSB_B_SPEC;
         is_ycsb = 1;
+        if (is_mt) {
+            ycsb_name = "mt-ycsb-b ART-OLC";
+        } else {
+            ycsb_name = "ycsb-b ART-OLC";
+        }
     }
 
     if (!strcmp(test_name, "ycsb-c") || !strcmp(test_name, "mt-ycsb-c")) {
         ycsb_spec = YCSB_C_SPEC;
         is_ycsb = 1;
+        if (is_mt) {
+            ycsb_name = "mt-ycsb-c ART-OLC";
+        } else {
+            ycsb_name = "ycsb-c ART-OLC";
+        }
     }
 
     if (!strcmp(test_name, "ycsb-d") || !strcmp(test_name, "mt-ycsb-d")) {
         ycsb_spec = YCSB_D_SPEC;
         is_ycsb = 1;
+        if (is_mt) {
+            ycsb_name = "mt-ycsb-d ART-OLC";
+        } else {
+            ycsb_name = "ycsb-d ART-OLC";
+        }
     }
 
     if (!strcmp(test_name, "ycsb-e") || !strcmp(test_name, "mt-ycsb-e")) {
         ycsb_spec = YCSB_E_SPEC;
         is_ycsb = 1;
+        if (is_mt) {
+            ycsb_name = "mt-ycsb-e ART-OLC";
+        } else {
+            ycsb_name = "ycsb-e ART-OLC";
+        }
     }
 
     if (!strcmp(test_name, "ycsb-f") || !strcmp(test_name, "mt-ycsb-f")) {
         ycsb_spec = YCSB_F_SPEC;
         is_ycsb = 1;
+        if (is_mt) {
+            ycsb_name = "mt-ycsb-f ART-OLC";
+        } else {
+            ycsb_name = "ycsb-f ART-OLC";
+        }
     }
 
     if (is_ycsb) {
         if (has_flag(args, "--ycsb-uniform-dist"))
             ycsb_spec.distribution = DIST_UNIFORM;
 
-        test_ycsb(&dataset, &ycsb_spec, num_threads);
+        test_ycsb(&dataset, &ycsb_spec, num_threads, ycsb_name, is_mt);
         return 0;
     }
 
