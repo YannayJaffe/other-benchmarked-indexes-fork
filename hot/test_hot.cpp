@@ -146,7 +146,129 @@ void load_dataset(char* dataset_name) {
 	printf("RESULT: ops=%lu ms=%d\n", dataset.num_keys, (int)(time_took * 1000));
 }
 
-void pos_lookup(dataset_t* dataset) {
+void insert_keys(string_hot_t& trie, ct_key* keys, uint64_t num_keys) {
+    for(auto i=0; i<num_keys; i++){
+        trie.insert((const char*)keys[i].bytes);
+    }
+}
+
+void insert_kvs(kv_hot_t& trie, string_kv** kvs, uint64_t num_keys) {
+    for(auto i=0; i<num_keys; i++){
+        trie.insert(kvs[i]);
+    }
+}
+
+typedef struct {
+    uint64_t num_keys;
+    union {
+        ct_key* keys;
+        string_kv **kvs;
+    };
+    union {
+        mt_string_hot_t* string_trie;
+        mt_kv_hot_t * kv_trie;
+    };
+} mt_insert_delete_ctx;
+
+void* mt_insert_thread(void* arg) {
+    mt_insert_delete_ctx* ctx = (mt_insert_delete_ctx*) arg;
+    uint64_t i;
+
+    for (i = 0; i < ctx->num_keys; i++) {
+        ctx->string_trie->insert((const char*) ctx->keys[i].bytes);
+        speculation_barrier();
+    }
+
+    return NULL;
+}
+
+
+void insert_keys_mt(mt_string_hot_t& trie, ct_keys* keys, uint64_t num_keys){
+    auto num_threads = get_num_available_cpus();
+    pthread_t thread_ids[num_threads];
+    mt_insert_delete_ctx thread_contexts[num_threads];
+
+    for (i = 0; i < num_threads; i++) {
+        uint64_t start_key = (num_keys * i) / num_threads;
+        uint64_t end_key;
+        if (i < num_threads-1) {
+            end_key = (num_keys * (i+1)) / num_threads;
+        } else {
+            end_key = num_keys;
+        }
+        thread_contexts[i].num_keys = end_key - start_key;
+        thread_contexts[i].keys = &(keys[start_key]);
+        thread_contexts[i].string_trie = &trie;
+    }
+
+    printf("Inserting...\n");
+    for (i = 0; i < num_threads; i++) {
+        result = pthread_create(&(thread_ids[i]), NULL, mt_insert_thread, &(thread_contexts[i]));
+        if (result != 0) {
+            printf("Error: Failed to create thread\n");
+            return;
+        }
+    }
+
+    for (i = 0; i < num_threads; i++) {
+        result = pthread_join(thread_ids[i], NULL);
+        if (result != 0) {
+            printf("Error: Failed to join thread\n");
+            return;
+        }
+    }
+}
+
+void* mt_kv_insert_thread(void* arg) {
+    mt_insert_delete_ctx* ctx = (mt_insert_delete_ctx*) arg;
+    uint64_t i;
+
+    for (i = 0; i < ctx->num_keys; i++) {
+        ctx->kv_trie->insert(ctx->kvs[i]);
+        speculation_barrier();
+    }
+
+    return NULL;
+}
+
+
+void insert_kvs_mt(mt_kv_hot_t & trie, string_kv **kvs, uint64_t num_keys){
+    auto num_threads = get_num_available_cpus();
+    pthread_t thread_ids[num_threads];
+    mt_insert_delete_ctx thread_contexts[num_threads];
+
+    for (i = 0; i < num_threads; i++) {
+        uint64_t start_key = (num_keys * i) / num_threads;
+        uint64_t end_key;
+        if (i < num_threads-1) {
+            end_key = (num_keys * (i+1)) / num_threads;
+        } else {
+            end_key = num_keys;
+        }
+        thread_contexts[i].num_keys = end_key - start_key;
+        thread_contexts[i].kvs = &(kvs[start_key]);
+        thread_contexts[i].kv_trie = &trie;
+    }
+
+    printf("Inserting...\n");
+    for (i = 0; i < num_threads; i++) {
+        result = pthread_create(&(thread_ids[i]), NULL, mt_kv_insert_thread, &(thread_contexts[i]));
+        if (result != 0) {
+            printf("Error: Failed to create thread\n");
+            return;
+        }
+    }
+
+    for (i = 0; i < num_threads; i++) {
+        result = pthread_join(thread_ids[i], NULL);
+        if (result != 0) {
+            printf("Error: Failed to join thread\n");
+            return;
+        }
+    }
+}
+
+void pos_lookup(dataset_t* dataset, bool false_queries) {
 	const uint64_t num_lookups = 10 * MILLION;
 	uint64_t i;
 	struct timespec start_time;
@@ -158,14 +280,24 @@ void pos_lookup(dataset_t* dataset) {
 
 	keys = read_string_dataset(dataset);
 
+
 	printf("Loading...\n");
-	for (i = 0;i < dataset->num_keys;i++)
-		trie.insert((const char*)keys[i].bytes);
+	auto num_keys_to_load = dataset->num_keys;
+	if(false_queries) {
+	    num_keys_to_load -= num_lookups;
+	}
+    insert_keys(trie, keys, num_keys_to_load);
 
 	printf("Creating workload...\n");
 	dynamic_buffer_init(&workload_data);
 	for (i = 0;i < num_lookups;i++) {
-		ct_key* key = &(keys[rand_uint64() % dataset->num_keys]);
+	    uint64_t key_index;
+	    if (false_queries) {
+	        key_index = dataset->num_keys - num_lookups + (rand_uint64() % num_lookups);
+	    } else {
+	        key_index = rand_uint64() % dataset->num_keys;
+	    }
+		ct_key* key = &(keys[key_index]);
 		uint64_t pos = dynamic_buffer_extend(&workload_data, key->size + 1);
 		memcpy(workload_data.ptr + pos, key->bytes, key->size + 1);
 		workload_offsets[i] = pos;
@@ -176,9 +308,9 @@ void pos_lookup(dataset_t* dataset) {
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 	for (i = 0;i < num_lookups;i++) {
 		auto value = trie.lookup((const char*)(workload_data.ptr + workload_offsets[i]));
-		if (!value.mIsValid) {
-			printf("ERROR! Key not found.\n");
-			break;
+		if (value.mIsValid == false_queries) {
+			printf("ERROR! Expected to find key %d, found key %d.\n", !false_queries, value.mIsValid);
+			return;
 		}
 		speculation_barrier();
 	}
@@ -186,8 +318,13 @@ void pos_lookup(dataset_t* dataset) {
 	notify_critical_section_end();
 
 	float time_took = time_diff(&end_time, &start_time);
-	printf("Took %.2fs (%.0fns/key)\n", time_took, time_took / num_lookups * 1.0e9);
-	printf("RESULT: ops=%lu ms=%d\n", num_lookups, (int)(time_took * 1000));
+	const char* exp_name;
+	if(false_queries){
+	    exp_name = "neg-lookup HOT";
+	} else {
+	    exp_name = "pos-lookup HOT";
+	}
+    report(exp_name, time_took, num_lookups);
 }
 
 typedef struct {
@@ -267,24 +404,6 @@ void mt_pos_lookup(char* dataset_name, unsigned int num_threads) {
 	report_mt(time_took, lookups_per_thread * num_threads, num_threads);
 }
 
-typedef struct {
-	uint64_t num_keys;
-	ct_key* keys;
-	mt_string_hot_t* trie;
-} mt_insert_ctx;
-
-void* mt_insert_thread(void* arg) {
-	mt_insert_ctx* ctx = (mt_insert_ctx*) arg;
-	uint64_t i;
-
-	for (i = 0; i < ctx->num_keys; i++) {
-		ctx->trie->insert((const char*) ctx->keys[i].bytes);
-		speculation_barrier();
-	}
-
-	return NULL;
-}
-
 void mt_insert(char* dataset_name, unsigned int num_threads) {
 	uint64_t i;
 	int result;
@@ -294,7 +413,7 @@ void mt_insert(char* dataset_name, unsigned int num_threads) {
 	struct timespec start_time;
 	struct timespec end_time;
 	pthread_t thread_ids[num_threads];
-	mt_insert_ctx thread_contexts[num_threads];
+	mt_insert_delete_ctx thread_contexts[num_threads];
 
 	printf("Reading dataset...\n");
 	init_dataset(&dataset, dataset_name, DATASET_ALL_KEYS);
@@ -886,9 +1005,20 @@ int main(int argc, char** argv) {
 			printf("Error creating dataset.\n");
 			return 1;
 		}
-		pos_lookup(&dataset);
+		pos_lookup(&dataset, false);
 		return 0;
 	}
+    if (!strcmp(test_name, "neg-lookup")) {
+        seed_and_print();
+        dataset_size = get_uint64_flag(args, "--dataset-size", DATASET_ALL_KEYS);
+        result = init_dataset(&dataset, dataset_name, dataset_size);
+        if (!result) {
+            printf("Error creating dataset.\n");
+            return 1;
+        }
+        pos_lookup(&dataset, true);
+        return 0;
+    }
 	if (!strcmp(test_name, "mt-pos-lookup")) {
 		mt_pos_lookup(dataset_name, num_threads);
 		return 0;
