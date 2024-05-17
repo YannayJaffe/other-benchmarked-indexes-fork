@@ -202,4 +202,5 @@ uint64_t rand_dist(rand_distribution* dist);
 int run_multiple_threads(void* (*thread_func)(void*), int num_threads, void* thread_contexts, int context_size);
 void report_mt(const char* exp_name, float duration, uint64_t num_ops, int num_threads);
 void report(const char* exp_name, float duration, uint64_t num_ops);
+int get_num_available_cpus();
 #endif
