@@ -751,11 +751,7 @@ int main(int argc, char **argv) {
     profiler_pid = get_int_flag(args, "--profiler-pid", PID_NO_PROFILER);
     dataset_size = get_uint64_flag(args, "--dataset-size", DATASET_ALL_KEYS);
     num_threads = get_int_flag(args, "--threads", 4);
-    std::string test_name_str = test_name;
-    auto is_mt = test_name_str.find("mt-") == 0;
-    if (!is_mt) {
-        num_threads = 1;
-    }
+
 
     seed_and_print();
     result = init_dataset(&dataset, args->args[1], dataset_size);
@@ -766,6 +762,11 @@ int main(int argc, char **argv) {
     }
 
     test_name = args->args[0];
+    std::string test_name_str = test_name;
+    auto is_mt = test_name_str.find("mt-") == 0;
+    if (!is_mt) {
+        num_threads = 1;
+    }
 
     if (!strcmp(test_name, "insert") || !strcmp(test_name, "mt-insert")) {
         test_mt_insert(&dataset, num_threads, is_mt);
