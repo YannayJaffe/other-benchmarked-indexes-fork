@@ -550,16 +550,18 @@ int run_multiple_threads(void* (*thread_func)(void*), int num_threads, void* thr
 	return 1;
 }
 
-void report_mt(float duration, uint64_t num_ops, int num_threads) {
-	printf("Took %.2fs for %lu ops in %d threads (%.0fns/op, %.2fMops/s per thread)\n",
-		   duration, num_ops, num_threads,
-		   (duration / num_ops * num_threads) * 1.0e9,
-		   (num_ops / duration / num_threads) / 1.0e6);
+void report_mt(const char* exp_name, float duration, uint64_t num_ops, int num_threads) {
+    printf("Experiment: %s\n", exp_name);
+    printf("Took %.2fs for %lu ops in %d threads (%.0fns/op, %.2fMops/s per thread)\n",
+           duration, num_ops, num_threads,
+           (duration / num_ops * num_threads) * 1.0e9,
+           (num_ops / duration / num_threads) / 1.0e6);
 
-	printf("RESULT: ops=%lu threads=%d ms=%d\n", num_ops, num_threads, (int)(duration*1000));
+    printf("RESULT: ops=%lu threads=%d ms=%d\n", num_ops, num_threads, (int) (duration * 1000));
 }
 
-void report(float duration, uint64_t num_ops) {
-	printf("Took %.2fs for %lu ops (%.0fns/op)\n", duration, num_ops, duration / num_ops * 1.0e9);
-	printf("RESULT: ops=%lu ms=%d\n", num_ops, (int)(duration * 1000));
+void report(const char* exp_name, float duration, uint64_t num_ops) {
+    printf("Experiment: %s\n", exp_name);
+    printf("Took %.2fs (%.0fns/key)\n", duration, duration / num_ops * 1.0e9);
+    printf("RESULT: ops=%lu ms=%d\n", num_ops, (int) (duration * 1000));
 }
