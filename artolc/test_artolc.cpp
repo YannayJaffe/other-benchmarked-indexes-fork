@@ -215,7 +215,6 @@ void test_mt_delete(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
         thread_contexts[i].tree = &tree;
     }
 
-    printf("Inserting...\n");
     load_kvs_mt(tree, kv_ptrs, dataset->num_keys);
     printf("Running deletions...\n");
 
@@ -707,7 +706,6 @@ void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int 
         generate_ycsb_workload(dataset, kv_ptrs, &(thread_contexts[i].workload), spec, i, num_threads);
     }
 
-    printf("Inserting...\n");
     load_kvs_mt(tree, kv_ptrs, thread_contexts[0].workload.initial_num_keys);
 
     printf("Running workloads...\n");
