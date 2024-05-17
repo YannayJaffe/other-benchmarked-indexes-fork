@@ -183,12 +183,12 @@ void* mt_insert_thread(void* arg) {
 }
 
 
-void insert_keys_mt(mt_string_hot_t& trie, ct_keys* keys, uint64_t num_keys){
+void insert_keys_mt(mt_string_hot_t& trie, ct_key* keys, uint64_t num_keys){
     auto num_threads = get_num_available_cpus();
     pthread_t thread_ids[num_threads];
     mt_insert_delete_ctx thread_contexts[num_threads];
 
-    for (i = 0; i < num_threads; i++) {
+    for (auto i = 0; i < num_threads; i++) {
         uint64_t start_key = (num_keys * i) / num_threads;
         uint64_t end_key;
         if (i < num_threads-1) {
@@ -202,16 +202,16 @@ void insert_keys_mt(mt_string_hot_t& trie, ct_keys* keys, uint64_t num_keys){
     }
 
     printf("Inserting...\n");
-    for (i = 0; i < num_threads; i++) {
-        result = pthread_create(&(thread_ids[i]), NULL, mt_insert_thread, &(thread_contexts[i]));
+    for (auto i = 0; i < num_threads; i++) {
+        auto result = pthread_create(&(thread_ids[i]), NULL, mt_insert_thread, &(thread_contexts[i]));
         if (result != 0) {
             printf("Error: Failed to create thread\n");
             return;
         }
     }
 
-    for (i = 0; i < num_threads; i++) {
-        result = pthread_join(thread_ids[i], NULL);
+    for (auto i = 0; i < num_threads; i++) {
+        auto result = pthread_join(thread_ids[i], NULL);
         if (result != 0) {
             printf("Error: Failed to join thread\n");
             return;
@@ -237,7 +237,7 @@ void insert_kvs_mt(mt_kv_hot_t & trie, string_kv **kvs, uint64_t num_keys){
     pthread_t thread_ids[num_threads];
     mt_insert_delete_ctx thread_contexts[num_threads];
 
-    for (i = 0; i < num_threads; i++) {
+    for (auto i = 0; i < num_threads; i++) {
         uint64_t start_key = (num_keys * i) / num_threads;
         uint64_t end_key;
         if (i < num_threads-1) {
@@ -251,16 +251,16 @@ void insert_kvs_mt(mt_kv_hot_t & trie, string_kv **kvs, uint64_t num_keys){
     }
 
     printf("Inserting...\n");
-    for (i = 0; i < num_threads; i++) {
-        result = pthread_create(&(thread_ids[i]), NULL, mt_kv_insert_thread, &(thread_contexts[i]));
+    for (auto i = 0; i < num_threads; i++) {
+        auto result = pthread_create(&(thread_ids[i]), NULL, mt_kv_insert_thread, &(thread_contexts[i]));
         if (result != 0) {
             printf("Error: Failed to create thread\n");
             return;
         }
     }
 
-    for (i = 0; i < num_threads; i++) {
-        result = pthread_join(thread_ids[i], NULL);
+    for (auto i = 0; i < num_threads; i++) {
+        auto result = pthread_join(thread_ids[i], NULL);
         if (result != 0) {
             printf("Error: Failed to join thread\n");
             return;
