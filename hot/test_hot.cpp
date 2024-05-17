@@ -135,7 +135,10 @@ void load_dataset(char* dataset_name) {
 	notify_critical_section_start();
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 	for (i = 0;i < dataset.num_keys;i++) {
-		trie.insert((const char*)keys[i].bytes);
+		if(!trie.insert((const char*)keys[i].bytes)) {
+		    printf("Error: trying to insert duplicate keys!\n");
+		    return;
+		}
 		speculation_barrier();
 	}
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -147,13 +150,19 @@ void load_dataset(char* dataset_name) {
 
 void insert_keys(string_hot_t& trie, ct_key* keys, uint64_t num_keys) {
     for(auto i=0; i<num_keys; i++){
-        trie.insert((const char*)keys[i].bytes);
+        if(!trie.insert((const char*)keys[i].bytes)){
+            printf("Error: tried to insert duplicate keys!\n");
+            exit(1);
+        }
     }
 }
 
 void insert_kvs(kv_hot_t& trie, string_kv** kvs, uint64_t num_keys) {
     for(auto i=0; i<num_keys; i++){
-        trie.insert(kvs[i]);
+        if(!trie.insert(kvs[i])){
+            printf("Error: tried to insert duplicate keys!\n");
+            exit(1);
+        }
     }
 }
 
@@ -174,7 +183,10 @@ void* mt_insert_thread(void* arg) {
     uint64_t i;
 
     for (i = 0; i < ctx->num_keys; i++) {
-        ctx->string_trie->insert((const char*) ctx->keys[i].bytes);
+        if(!ctx->string_trie->insert((const char*) ctx->keys[i].bytes)){
+            printf("Error: tried to insert duplicate keys!\n");
+            exit(1);
+        }
         speculation_barrier();
     }
 
@@ -223,7 +235,10 @@ void* mt_kv_insert_thread(void* arg) {
     uint64_t i;
 
     for (i = 0; i < ctx->num_keys; i++) {
-        ctx->kv_trie->insert(ctx->kvs[i]);
+        if(!ctx->kv_trie->insert(ctx->kvs[i])){
+            printf("Error: tried to insert duplicate keys!\n");
+            exit(1);
+        }
         speculation_barrier();
     }
 
@@ -265,6 +280,44 @@ void insert_kvs_mt(mt_kv_hot_t & trie, string_kv **kvs, uint64_t num_keys){
             return;
         }
     }
+}
+
+void bench_delete(char* dataset_name) {
+    struct timespec start_time;
+    struct timespec end_time;
+    uint64_t i;
+    int result;
+    dataset_t dataset;
+    ct_key* keys;
+    string_hot_t trie;
+
+    seed_and_print();
+    result = init_dataset(&dataset, dataset_name, DATASET_ALL_KEYS);
+    if (!result) {
+        printf("Error creating dataset.\n");
+        return;
+    }
+
+    printf("Reading dataset...\n");
+    keys = read_string_dataset(&dataset);
+
+    printf("Loading...\n");
+    insert_keys(trie, keys, dataset.num_keys);
+
+    notify_critical_section_start();
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    for (i = 0;i < dataset.num_keys;i++) {
+        if(!trie.remove((const char*)keys[i].bytes)){
+            printf("Error: trying to remove a key that wasnt inserted!\n");
+            return;
+        }
+        speculation_barrier();
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    notify_critical_section_end();
+
+    float time_took = time_diff(&end_time, &start_time);
+    report("delete HOT", time_took, dataset.num_keys);
 }
 
 void pos_lookup(dataset_t* dataset, bool false_queries) {
@@ -1063,6 +1116,10 @@ int main(int argc, char** argv) {
 		load_dataset(dataset_name);
 		return 0;
 	}
+    if (!strcmp(test_name, "delete")) {
+        bench_delete(dataset_name);
+        return 0;
+    }
 	if (!strcmp(test_name, "ycsb-a")) {
 		ycsb_workload = YCSB_A_SPEC;
 		is_ycsb = 1;
@@ -1140,6 +1197,10 @@ int main(int argc, char** argv) {
 		mt_insert(dataset_name, num_threads);
 		return 0;
 	}
+    if (!strcmp(test_name, "mt-delete")) {
+        printf("Error: HOT does not support multithreaded deletions");
+        return 0;
+    }
 	if (!strcmp(test_name, "mem-usage")) {
 		mem_usage(dataset_name);
 		return 0;
