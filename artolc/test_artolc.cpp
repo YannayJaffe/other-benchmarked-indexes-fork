@@ -185,7 +185,7 @@ void test_mt_insert(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
     notify_critical_section_end();
 
     if (is_mt) {
-        report_mt("mt-insert ART_OLC", time_took, dataset->num_keys, num_threads);
+        report_mt("mt-insert ART-OLC", time_took, dataset->num_keys, num_threads);
     } else {
         report("insert ART-OLC", time_took, dataset->num_keys);
     }
@@ -225,7 +225,7 @@ void test_mt_delete(dataset_t *dataset, unsigned int num_threads, bool is_mt) {
     notify_critical_section_end();
 
     if (is_mt) {
-        report_mt("mt-delete ART_OLC", time_took, dataset->num_keys, num_threads);
+        report_mt("mt-delete ART-OLC", time_took, dataset->num_keys, num_threads);
     } else {
         report("delete ART-OLC", time_took, dataset->num_keys);
     }
