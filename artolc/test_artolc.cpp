@@ -646,10 +646,7 @@ void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int 
     }
 
     printf("Inserting...\n");
-    for (i = 0; i < dataset->num_keys; i++) {
-        load_key((TID) kv_ptrs[i], key);
-        tree.insert(key, (TID) kv_ptrs[i], thread_info);
-    }
+    load_kvs_mt(tree, kv_ptrs, thread_contexts[0].workload.initial_num_keys);
 
     printf("Running workloads...\n");
     notify_critical_section_start();
