@@ -331,6 +331,7 @@ typedef struct {
 	uint64_t num_keys;
 	const char** keys;
 	mt_string_hot_t* trie;
+	bool false_queries;
 } mt_lookup_ctx;
 
 void* mt_lookup_thread(void* arg) {
@@ -339,8 +340,9 @@ void* mt_lookup_thread(void* arg) {
 
 	for (i = 0; i < ctx->num_keys; i++) {
 		auto value = ctx->trie->lookup(ctx->keys[i]);
-		if (!value.mIsValid) {
-			printf("ERROR! Key not found.\n");
+		if (value.mIsValid == ctx->false_queries) {
+			printf("ERROR: Expected to find key %d, found key %d.\n", !ctx->false_queries, value.mIsValid);
+			exit(1);
 			break;
 		}
 		speculation_barrier();
@@ -349,7 +351,7 @@ void* mt_lookup_thread(void* arg) {
 	return NULL;
 }
 
-void mt_pos_lookup(char* dataset_name, unsigned int num_threads) {
+void mt_pos_lookup(char* dataset_name, unsigned int num_threads, bool false_queries) {
 	const uint64_t lookups_per_thread = 10 * MILLION;
 	uint64_t i;
 	int result;
@@ -372,13 +374,23 @@ void mt_pos_lookup(char* dataset_name, unsigned int num_threads) {
 	keys = read_string_dataset(&dataset);
 
 	printf("Loading...\n");
-	for (i = 0;i < dataset.num_keys;i++)
-		trie.insert((const char*)keys[i].bytes);
+	auto num_keys_to_load = dataset.num_keys;
+	if(false_queries){
+	    num_keys_to_load -= lookups_per_thread;
+	}
+    insert_keys_mt(trie, keys, num_keys_to_load);
+
 
 	printf("Creating workload...\n");
 	dynamic_buffer_init(&workload_data);
 	for (i = 0; i < total_lookups; i++) {
-		ct_key* key = &(keys[rand_uint64() % dataset.num_keys]);
+	    uint64_t key_idx;
+	    if (false_queries) {
+	        key_idx = dataset.num_keys-lookups_per_thread + (rand_uint64() % lookups_per_thread);
+	    } else {
+	        key_idx = rand_uint64() % dataset.num_keys;
+	    }
+		ct_key* key = &(keys[key_idx]);
 		uint64_t pos = dynamic_buffer_extend(&workload_data, key->size + 1);
 		memcpy(workload_data.ptr + pos, key->bytes, key->size + 1);
 		workload_keys[i] = (const char*) pos;
@@ -391,6 +403,7 @@ void mt_pos_lookup(char* dataset_name, unsigned int num_threads) {
 		thread_contexts[i].trie = &trie;
 		thread_contexts[i].num_keys = lookups_per_thread;
 		thread_contexts[i].keys = &(workload_keys[i * lookups_per_thread]);
+		thread_contexts[i].false_queries = false_queries;
 	}
 
 	printf("Performing lookups...\n");
@@ -400,8 +413,14 @@ void mt_pos_lookup(char* dataset_name, unsigned int num_threads) {
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	notify_critical_section_end();
 
-	float time_took = time_diff(&end_time, &start_time);
-	report_mt(time_took, lookups_per_thread * num_threads, num_threads);
+    float time_took = time_diff(&end_time, &start_time);
+    const char* exp_name;
+    if (false_queries) {
+        exp_name = "mt-neg-lookup HOT";
+    } else {
+        exp_name = "mt-pos-lookup HOT";
+    }
+    report_mt(exp_name, time_took, lookups_per_thread * num_threads, num_threads);
 }
 
 void mt_insert(char* dataset_name, unsigned int num_threads) {
@@ -1020,9 +1039,13 @@ int main(int argc, char** argv) {
         return 0;
     }
 	if (!strcmp(test_name, "mt-pos-lookup")) {
-		mt_pos_lookup(dataset_name, num_threads);
+		mt_pos_lookup(dataset_name, num_threads, false);
 		return 0;
 	}
+    if (!strcmp(test_name, "mt-neg-lookup")) {
+        mt_pos_lookup(dataset_name, num_threads, true);
+        return 0;
+    }
 	if (!strcmp(test_name, "range-read")) {
 		process_ranges(dataset_name, read_ranges);
 		return 0;
