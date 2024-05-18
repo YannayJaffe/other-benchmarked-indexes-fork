@@ -269,6 +269,41 @@ void *mt_pos_lookup_thread(void *arg) {
     return NULL;
 }
 
+struct prepare_lookups_workloads_context{
+    mt_pos_lookup_ctx *out_ctx;
+    kv_t **kvs;
+    uint64_t num_keys;
+    uint64_t num_lookups;
+    bool false_queries;
+    int thread_idx;
+};
+
+void* prepare_lookup_workloads_thread(void* arg) {
+    prepare_lookups_workloads_context* ctx = (prepare_lookups_workloads_context*)arg;
+    dynamic_buffer_t workload_buf;
+    dynamic_buffer_init(&workload_buf);
+    uint64_t thread_rand_state = seed_and_print_r(ctx->thread_idx);
+
+    for (int j = 0; j < ctx->num_lookups; j++) {
+        uint64_t key_idx;
+        if (ctx->false_queries) {
+            key_idx = ctx->num_keys - ctx->num_lookups + (rand_uint64_r(&thread_rand_state) % ctx->num_lookups);
+        } else {
+            key_idx = rand_uint64_r(&thread_rand_state) % ctx->num_keys;
+        }
+        kv_t *kv = ctx->kvs[key_idx];
+        uint64_t data_size = sizeof(blob_t) + kv->key_size;
+        uint64_t offset = dynamic_buffer_extend(&workload_buf, data_size);
+        blob_t *data = (blob_t *) (workload_buf.ptr + offset);
+        data->size = kv->key_size;
+        memcpy(data->bytes, kv->kv, kv->key_size);
+    }
+    ctx->out_ctx->keys_buf = workload_buf.ptr;
+    ctx->out_ctx->num_keys = ctx->num_lookups;
+    return NULL;
+}
+
+
 void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt, bool false_queries) {
     const uint64_t lookups_per_thread = 10 * MILLION;
 
@@ -276,8 +311,8 @@ void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt
     Key key;
     kv_t **kv_ptrs;
     stopwatch_t timer;
-    dynamic_buffer_t workloads_buf;
     ART_OLC::Tree tree(load_key);
+    prepare_lookups_workloads_context prepare_contexts[num_threads];
     mt_pos_lookup_ctx thread_contexts[num_threads];
     auto thread_info = tree.getThreadInfo();
 
@@ -290,31 +325,18 @@ void test_mt_pos_lookup(dataset_t *dataset, unsigned int num_threads, bool is_mt
     load_kvs_mt(tree, kv_ptrs, num_keys_to_load);
 
     printf("Creating workloads...\n");
-    dynamic_buffer_init(&workloads_buf);
     for (i = 0; i < num_threads; i++) {
         thread_contexts[i].tree = &tree;
-        thread_contexts[i].num_keys = lookups_per_thread;
-        thread_contexts[i].keys_buf = (uint8_t *) workloads_buf.pos;
         thread_contexts[i].false_queries = false_queries;
-
-        for (j = 0; j < lookups_per_thread; j++) {
-            uint64_t key_idx;
-            if (false_queries) {
-                key_idx = dataset->num_keys - lookups_per_thread + (rand_uint64() % lookups_per_thread);
-            } else {
-                key_idx = rand_uint64() % dataset->num_keys;
-            }
-            kv_t *kv = kv_ptrs[key_idx];
-            uint64_t data_size = sizeof(blob_t) + kv->key_size;
-            uint64_t offset = dynamic_buffer_extend(&workloads_buf, data_size);
-            blob_t *data = (blob_t *) (workloads_buf.ptr + offset);
-            data->size = kv->key_size;
-            memcpy(data->bytes, kv->kv, kv->key_size);
-        }
+        prepare_contexts[i].out_ctx = &thread_contexts[i];
+        prepare_contexts[i].kvs = kv_ptrs;
+        prepare_contexts[i].num_keys = dataset->num_keys;
+        prepare_contexts[i].num_lookups = lookups_per_thread;
+        prepare_contexts[i].false_queries = false_queries;
+        prepare_contexts[i].thread_idx = i;
     }
+    run_multiple_threads(prepare_lookup_workloads_thread, num_threads, prepare_contexts, sizeof(prepare_contexts[0]));
 
-    for (i = 0; i < num_threads; i++)
-        thread_contexts[i].keys_buf += (uintptr_t) workloads_buf.ptr;
 
     printf("Performing lookups...\n");
     notify_critical_section_start();
