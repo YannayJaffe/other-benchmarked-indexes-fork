@@ -1056,7 +1056,7 @@ void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int nu
 	}
 
 	kvs = create_string_kvs(&dataset);
-
+    printf("Generating workloads\n");
     for (i = 0; i < num_threads; i++) {
         thread_contexts[i].trie = &trie;
         thread_contexts[i].num_threads = num_threads;
@@ -1066,7 +1066,7 @@ void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int nu
         thread_contexts[i].random_state = seed_and_print_r(i);
     }
     generate_mt_ycsb_workload(thread_contexts, &dataset, kvs, spec, num_threads);
-    printf("\nInserting keys\n");
+    printf("\n");
 	// Fill the tree
     insert_kvs_mt(trie, kvs, thread_contexts[0].workload.initial_num_keys);
 
