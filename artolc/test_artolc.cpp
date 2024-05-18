@@ -560,7 +560,7 @@ void *ycsb_thread(void *arg) {
     uint64_t read_latest_from_thread = 0;
     ycsb_thread_ctx *inserter;
     ycsb_thread_ctx *ctx = (ycsb_thread_ctx *) arg;
-    uint64_t rand_state = ctx->thread_id;
+    uint64_t rand_state = ctx->random_state;
 
     auto thread_info = ctx->tree->getThreadInfo();
 
