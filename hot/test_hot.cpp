@@ -403,6 +403,43 @@ void* mt_lookup_thread(void* arg) {
 	return NULL;
 }
 
+struct prepare_lookups_workloads_context{
+    mt_lookup_ctx *out_ctx;
+    ct_key* keys;
+    uint64_t num_keys;
+    uint64_t num_lookups;
+    bool false_queries;
+    int thread_idx;
+};
+
+void* prepare_lookup_workloads_thread(void* arg) {
+    prepare_lookups_workloads_context* ctx = (prepare_lookups_workloads_context*)arg;
+    dynamic_buffer_t workload_data;
+    char** workload_keys = (char**)malloc(sizeof(void*) * ctx->num_lookups);
+    dynamic_buffer_init(&workload_data);
+    uint64_t thread_rand_state = seed_and_print_r(ctx->thread_idx);
+
+    for (int i = 0; i < ctx->num_lookups; i++) {
+        uint64_t key_idx;
+        if (ctx->false_queries) {
+            key_idx = ctx->num_keys - ctx->num_lookups + (rand_uint64_r(&thread_rand_state) % ctx->num_lookups);
+        } else {
+            key_idx = rand_uint64_r(&thread_rand_state) % ctx->num_keys;
+        }
+        ct_key* key = &(ctx->keys[key_idx]);
+        uint64_t pos = dynamic_buffer_extend(&workload_data, key->size + 1);
+        memcpy(workload_data.ptr + pos, key->bytes, key->size + 1);
+        workload_keys[i] = (char*) pos;
+    }
+    for (int i = 0;i < ctx->num_lookups; i++) {
+        workload_keys[i] += (uintptr_t) workload_data.ptr;
+    }
+    ctx->out_ctx->keys = (const char **)workload_keys;
+    ctx->out_ctx->num_keys = ctx->num_lookups;
+    return NULL;
+}
+
+
 void mt_pos_lookup(char* dataset_name, unsigned int num_threads, bool false_queries) {
 	const uint64_t lookups_per_thread = 10 * MILLION;
 	uint64_t i;
@@ -412,10 +449,8 @@ void mt_pos_lookup(char* dataset_name, unsigned int num_threads, bool false_quer
 	mt_string_hot_t trie;
 	struct timespec start_time;
 	struct timespec end_time;
-	dynamic_buffer_t workload_data;
+    prepare_lookups_workloads_context prepare_contexts[num_threads];
 	mt_lookup_ctx thread_contexts[num_threads];
-	uint64_t total_lookups = num_threads * lookups_per_thread;
-	const char** workload_keys = (const char**) malloc(sizeof(void*) * lookups_per_thread * num_threads);
 
 	seed_and_print();
 	result = init_dataset(&dataset, dataset_name, DATASET_ALL_KEYS);
@@ -434,29 +469,18 @@ void mt_pos_lookup(char* dataset_name, unsigned int num_threads, bool false_quer
 
 
 	printf("Creating workload...\n");
-	dynamic_buffer_init(&workload_data);
-	for (i = 0; i < total_lookups; i++) {
-	    uint64_t key_idx;
-	    if (false_queries) {
-	        key_idx = dataset.num_keys-lookups_per_thread + (rand_uint64() % lookups_per_thread);
-	    } else {
-	        key_idx = rand_uint64() % dataset.num_keys;
-	    }
-		ct_key* key = &(keys[key_idx]);
-		uint64_t pos = dynamic_buffer_extend(&workload_data, key->size + 1);
-		memcpy(workload_data.ptr + pos, key->bytes, key->size + 1);
-		workload_keys[i] = (const char*) pos;
-	}
-
-	for (i = 0;i < total_lookups; i++)
-		workload_keys[i] += (uintptr_t) workload_data.ptr;
-
 	for (i = 0;i < num_threads; i++) {
 		thread_contexts[i].trie = &trie;
-		thread_contexts[i].num_keys = lookups_per_thread;
-		thread_contexts[i].keys = &(workload_keys[i * lookups_per_thread]);
-		thread_contexts[i].false_queries = false_queries;
+        thread_contexts[i].false_queries = false_queries;
+        prepare_contexts[i].out_ctx = &thread_contexts[i];
+        prepare_contexts[i].keys = keys;
+        prepare_contexts[i].num_keys = dataset.num_keys;
+        prepare_contexts[i].num_lookups = lookups_per_thread;
+        prepare_contexts[i].false_queries = false_queries;
+        prepare_contexts[i].thread_idx = i;
 	}
+    run_multiple_threads(prepare_lookup_workloads_thread, num_threads, prepare_contexts, sizeof(prepare_contexts[0]));
+
 
 	printf("Performing lookups...\n");
 	notify_critical_section_start();
