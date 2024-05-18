@@ -660,6 +660,7 @@ typedef struct ycsb_thread_ctx_struct {
 	uint64_t num_threads;
 	uint64_t inserts_done;
 	struct ycsb_thread_ctx_struct* thread_contexts;
+	uint64_t random_state;
 	ycsb_workload workload;
 } ycsb_thread_ctx;
 
@@ -788,7 +789,7 @@ void execute_ycsb_workload(ycsb_thread_ctx* ctx) {
 
 			case YCSB_SCAN:{
 				char* key = (char*) (ctx->workload.data_buf + op->data_pos);
-				uint64_t range_size = (rand_dword() % 100) + 1;
+				uint64_t range_size = (rand_dword_r(&ctx->random_state) % 100) + 1;
 
 				uint64_t checksum = 0;
 				auto it = trie->lower_bound((const char*)key);
@@ -821,7 +822,7 @@ void execute_ycsb_workload(ycsb_thread_ctx* ctx) {
 
 void generate_ycsb_workload(dataset_t* dataset, string_kv** kvs, ycsb_workload* workload,
 						   const ycsb_workload_spec* spec, int thread_id,
-						   int num_threads) {
+						   int num_threads, uint64_t* random_state) {
 	uint64_t i;
 	int data_size;
 	string_kv* kv;
@@ -860,7 +861,7 @@ void generate_ycsb_workload(dataset_t* dataset, string_kv** kvs, ycsb_workload* 
 	dynamic_buffer_init(&workload_buf);
 	for (i = 0; i < spec->num_ops; i++) {
 		ycsb_op* op = &(workload->ops[i]);
-		op->type = choose_ycsb_op_type(spec->op_type_probs);
+		op->type = choose_ycsb_op_type(spec->op_type_probs, random_state);
 
 		if (num_inserts == inserts_per_thread && op->type == YCSB_INSERT) {
 			// Used all keys intended for insertion. Do another op type.
@@ -871,7 +872,7 @@ void generate_ycsb_workload(dataset_t* dataset, string_kv** kvs, ycsb_workload* 
 		switch (op->type) {
 			case YCSB_SCAN:
 			case YCSB_READ:{
-				kv = kvs[rand_dist(&dist)];
+				kv = kvs[rand_dist(&dist, random_state)];
 				data_size = strlen(kv->key) + 1;
 				op->data_pos = dynamic_buffer_extend(&workload_buf, data_size);
 				memcpy(workload_buf.ptr + op->data_pos, kv->key, data_size);
@@ -884,7 +885,7 @@ void generate_ycsb_workload(dataset_t* dataset, string_kv** kvs, ycsb_workload* 
 
 			case YCSB_RMW:
 			case YCSB_UPDATE:{
-				kv = kvs[rand_dist(&dist)];
+				kv = kvs[rand_dist(&dist, random_state)];
 				data_size = strlen(kv->key) + 1 + sizeof(string_kv);
 				op->data_pos = dynamic_buffer_extend(&workload_buf, data_size);
 
@@ -920,7 +921,7 @@ void generate_ycsb_workload(dataset_t* dataset, string_kv** kvs, ycsb_workload* 
 		// We have one block for each amount of inserts between 0 and num_inserts, /inclusive/
 		for (block = 0; block < num_inserts + 1; block++) {
 			for (i = 0; i < read_latest_block_size; i++) {
-				uint64_t backwards = rand_dist(&backward_dist);
+				uint64_t backwards = rand_dist(&backward_dist, random_state);
 				if (backwards < block * num_threads) {
 					// This read-latest op refers to a key that was inserted during the workload
 					backwards /= num_threads;
@@ -976,15 +977,16 @@ void ycsb(char* dataset_name, const ycsb_workload_spec* spec, const char* exp_na
 
 	kvs = create_string_kvs(&dataset);
 
-	// Create workload
-	generate_ycsb_workload(&dataset, kvs, &(ctx.workload), spec, 0, 1);
-
 	// Initialize context
 	ctx.trie = &trie;
 	ctx.thread_id = 0;
 	ctx.num_threads = 1;
 	ctx.inserts_done = 0;
 	ctx.thread_contexts = &ctx;
+	ctx.random_state = seed_and_print_r(0);
+
+    // Create workload
+    generate_ycsb_workload(&dataset, kvs, &(ctx.workload), spec, 0, 1, &ctx.random_state);
 
 	// Fill the tree
     insert_kvs(trie, kvs, ctx.workload.initial_num_keys);
@@ -1005,6 +1007,37 @@ void* ycsb_thread(void* arg) {
 	return NULL;
 }
 
+struct prepare_mt_ycsb_workload_context {
+    dataset_t *dataset;
+    string_kv **kvs;
+    ycsb_workload *workload;
+    const ycsb_workload_spec *spec;
+    uint64_t *random_state;
+    int num_threads;
+    int thread_id;
+};
+
+void* generate_ycsb_workload_wrapper(void* arg){
+    prepare_mt_ycsb_workload_context *ctx = (prepare_mt_ycsb_workload_context *)arg;
+    generate_ycsb_workload(ctx->dataset, ctx->kvs, ctx->workload, ctx->spec, ctx->thread_id, ctx->num_threads, ctx->random_state);
+    return NULL;
+}
+
+void generate_mt_ycsb_workload(ycsb_thread_ctx *benchmark_inner_thread_contexts, dataset_t* dataset, string_kv **kvs, const ycsb_workload_spec *spec, int num_threads){
+    struct prepare_mt_ycsb_workload_context prepare_workload_inner_contexts[num_threads];
+    for (int i=0; i<num_threads; i++){
+        prepare_workload_inner_contexts[i].dataset = dataset;
+        prepare_workload_inner_contexts[i].kvs = kvs;
+        prepare_workload_inner_contexts[i].workload = &(benchmark_inner_thread_contexts[i].workload);
+        prepare_workload_inner_contexts[i].spec = spec;
+        prepare_workload_inner_contexts[i].random_state = &(benchmark_inner_thread_contexts[i].random_state);
+        prepare_workload_inner_contexts[i].thread_id = (int)benchmark_inner_thread_contexts[i].thread_id;
+        prepare_workload_inner_contexts[i].num_threads = num_threads;
+    }
+    run_multiple_threads(generate_ycsb_workload_wrapper, num_threads, prepare_workload_inner_contexts, sizeof(prepare_workload_inner_contexts[0]));
+}
+
+
 void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int num_threads, const char* exp_name) {
 	uint64_t i;
 	int result;
@@ -1024,16 +1057,16 @@ void mt_ycsb(char* dataset_name, const ycsb_workload_spec* spec, unsigned int nu
 
 	kvs = create_string_kvs(&dataset);
 
-	for (i = 0;i < num_threads;i++) {
-		ycsb_thread_ctx* ctx = &(thread_contexts[i]);
-		generate_ycsb_workload(&dataset, kvs, &(ctx->workload), spec, i, num_threads);
-		ctx->trie = &trie;
-		ctx->thread_id = i;
-		ctx->inserts_done = 0;
-		ctx->num_threads = num_threads;
-		ctx->thread_contexts = thread_contexts;
-	}
-
+    for (i = 0; i < num_threads; i++) {
+        thread_contexts[i].trie = &trie;
+        thread_contexts[i].num_threads = num_threads;
+        thread_contexts[i].thread_id = i;
+        thread_contexts[i].inserts_done = 0;
+        thread_contexts[i].thread_contexts = thread_contexts;
+        thread_contexts[i].random_state = seed_and_print_r(i);
+    }
+    generate_mt_ycsb_workload(thread_contexts, &dataset, kvs, spec, num_threads);
+    printf("\nInserting keys\n");
 	// Fill the tree
     insert_kvs_mt(trie, kvs, thread_contexts[0].workload.initial_num_keys);
 
