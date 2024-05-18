@@ -394,7 +394,7 @@ const ycsb_workload_spec YCSB_E_SPEC = {{0, 0, 0, 0.05, 0.95, 0}, 2 * MILLION, D
 const ycsb_workload_spec YCSB_F_SPEC = {{0.5, 0, 0, 0, 0, 0.5}, 10 * MILLION, DIST_ZIPF};
 
 void generate_ycsb_workload(dataset_t *dataset, kv_t **kv_ptrs, ycsb_workload *workload,
-                            const ycsb_workload_spec *spec, int thread_id, int num_threads) {
+                            const ycsb_workload_spec *spec, int thread_id, int num_threads, uint64_t* random_state) {
     kv_t *kv;
     uint64_t i;
     uint64_t data_size;
@@ -433,7 +433,7 @@ void generate_ycsb_workload(dataset_t *dataset, kv_t **kv_ptrs, ycsb_workload *w
     dynamic_buffer_init(&workload_buf);
     for (i = 0; i < spec->num_ops; i++) {
         ycsb_op *op = &(workload->ops[i]);
-        op->type = choose_ycsb_op_type(spec->op_type_probs);
+        op->type = choose_ycsb_op_type(spec->op_type_probs, random_state);
 
         if (num_inserts == inserts_per_thread && op->type == YCSB_INSERT) {
             // Used all keys intended for insertion. Do another op type.
@@ -444,7 +444,7 @@ void generate_ycsb_workload(dataset_t *dataset, kv_t **kv_ptrs, ycsb_workload *w
         switch (op->type) {
             case YCSB_SCAN:
             case YCSB_READ: {
-                kv = kv_ptrs[rand_dist(&dist)];
+                kv = kv_ptrs[rand_dist(&dist, random_state)];
                 data_size = sizeof(blob_t) + kv->key_size;
                 op->data_pos = dynamic_buffer_extend(&workload_buf, data_size);
 
@@ -460,7 +460,7 @@ void generate_ycsb_workload(dataset_t *dataset, kv_t **kv_ptrs, ycsb_workload *w
 
             case YCSB_RMW:
             case YCSB_UPDATE: {
-                kv = kv_ptrs[rand_dist(&dist)];
+                kv = kv_ptrs[rand_dist(&dist, random_state)];
                 data_size = sizeof(kv_t) + kv->key_size + kv->value_size;
                 op->data_pos = dynamic_buffer_extend(&workload_buf, data_size);
 
@@ -498,7 +498,7 @@ void generate_ycsb_workload(dataset_t *dataset, kv_t **kv_ptrs, ycsb_workload *w
         // We have one block for each amount of inserts between 0 and num_inserts, /inclusive/
         for (block = 0; block < num_inserts + 1; block++) {
             for (i = 0; i < read_latest_block_size; i++) {
-                uint64_t backwards = rand_dist(&backward_dist);
+                uint64_t backwards = rand_dist(&backward_dist, random_state);
                 if (backwards < block * num_threads) {
                     // This read-latest op refers to a key that was inserted during the workload
                     backwards /= num_threads;
@@ -541,6 +541,7 @@ typedef struct ycsb_thread_ctx_struct {
     uint64_t thread_id;
     uint64_t inserts_done;
     struct ycsb_thread_ctx_struct *thread_contexts;
+    uint64_t random_state;
     ycsb_workload workload;
 } ycsb_thread_ctx;
 
@@ -705,6 +706,37 @@ void *ycsb_thread(void *arg) {
     return NULL;
 }
 
+struct prepare_mt_ycsb_workload_context {
+    dataset_t *dataset;
+    kv_t **kv_ptrs;
+    ycsb_workload *workload;
+    const ycsb_workload_spec *spec;
+    uint64_t *random_state;
+    int num_threads;
+    int thread_id;
+};
+
+void* generate_ycsb_workload_wrapper(void* arg){
+    prepare_mt_ycsb_workload_context *ctx = (prepare_mt_ycsb_workload_context *)arg;
+    generate_ycsb_workload(ctx->dataset, ctx->kv_ptrs, ctx->workload, ctx->spec, ctx->thread_id, ctx->num_threads, ctx->random_state);
+    return NULL;
+}
+
+void generate_mt_ycsb_workload(ycsb_thread_ctx *benchmark_inner_thread_contexts, dataset_t* dataset, kv_t **kv_ptrs, const ycsb_workload_spec *spec, int num_threads){
+    struct prepare_mt_ycsb_workload_context prepare_workload_inner_contexts[num_threads];
+    for (int i=0; i<num_threads; i++){
+        prepare_workload_inner_contexts[i].dataset = dataset;
+        prepare_workload_inner_contexts[i].kv_ptrs = kv_ptrs;
+        prepare_workload_inner_contexts[i].workload = &(benchmark_inner_thread_contexts[i].workload);
+        prepare_workload_inner_contexts[i].spec = spec;
+        prepare_workload_inner_contexts[i].random_state = &(benchmark_inner_thread_contexts[i].random_state);
+        prepare_workload_inner_contexts[i].thread_id = (int)benchmark_inner_thread_contexts[i].thread_id;
+        prepare_workload_inner_contexts[i].num_threads = num_threads;
+    }
+    run_multiple_threads(generate_ycsb_workload_wrapper, num_threads, prepare_workload_inner_contexts, sizeof(prepare_workload_inner_contexts[0]));
+}
+
+
 void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int num_threads, const char *exp_name,
                bool is_mt) {
     uint64_t i;
@@ -725,9 +757,10 @@ void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int 
         thread_contexts[i].thread_id = i;
         thread_contexts[i].inserts_done = 0;
         thread_contexts[i].thread_contexts = thread_contexts;
-        generate_ycsb_workload(dataset, kv_ptrs, &(thread_contexts[i].workload), spec, i, num_threads);
+        thread_contexts[i].random_state = seed_and_print_r(i);
     }
-
+    generate_mt_ycsb_workload(thread_contexts, dataset, kv_ptrs, spec, num_threads);
+    printf("\nInserting keys\n");
     load_kvs_mt(tree, kv_ptrs, thread_contexts[0].workload.initial_num_keys);
 
     printf("Running workloads...\n");

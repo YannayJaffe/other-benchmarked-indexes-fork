@@ -347,10 +347,15 @@ uint64_t dynamic_buffer_extend(dynamic_buffer_t* buf, uint64_t data_size) {
 	return old_pos;
 }
 
-int choose_ycsb_op_type(const float* op_probs) {
+int choose_ycsb_op_type(const float* op_probs, uint64_t* random_state) {
 	uint64_t i;
 	float sum = 0.0;
-	float rand = rand_float();
+	float rand;
+	if(random_state == NULL){
+	    rand = rand_float();
+	} else {
+	    rand = rand_float_r(random_state);
+	}
 	for (i = 0;i < YCSB_NUM_OP_TYPES;i++) {
 		sum += op_probs[i];
 		if (sum > 1.00001) {
@@ -384,6 +389,10 @@ uint64_t spec_read_latest_block_size(const ycsb_workload_spec* spec, int num_thr
 
 double rand_double() {
 	return ((double)rand_uint64()) / UINT64_MAX;
+}
+
+double rand_double_r(uint64_t* state) {
+    return ((double)rand_uint64_r(state)) / UINT64_MAX;
 }
 
 void rand_uniform_init(rand_distribution* dist, uint64_t max) {
@@ -449,15 +458,25 @@ uint64_t mix(uint64_t x) {
 	return x;
 }
 
-uint64_t rand_dist(rand_distribution* dist) {
+uint64_t rand_dist(rand_distribution* dist, uint64_t* random_state) {
 	uint64_t low, high;
 	uint64_t range_num;
 
-	if (dist->type == DIST_UNIFORM)
-		return rand_uint64() % dist->max;
+	if (dist->type == DIST_UNIFORM) {
+	    if(random_state == NULL){
+            return rand_uint64() % dist->max;
+        } else {
+	        return rand_uint64_r(random_state) % dist->max;
+	    }
+    }
 
 	// Generate Zipf-distributed random
-	double x = rand_double() * dist->total_weight;
+	double x;
+	if(random_state==NULL){
+        x = rand_double() * dist->total_weight;
+	} else {
+	    x = rand_double_r(random_state) * dist->total_weight;
+	}
 
 	// Find which range contains x
 	low = 0;
@@ -477,7 +496,12 @@ uint64_t rand_dist(rand_distribution* dist) {
 
 	// This range contains x. Choose a random value in the range.
 	zipf_range* range = &(dist->zipf_ranges[range_num]);
-	uint64_t zipf_rand = (rand_uint64() % range->size) + range->start;
+	uint64_t zipf_rand;
+	if(random_state==NULL){
+      zipf_rand  = (rand_uint64() % range->size) + range->start;
+    } else{
+	    zipf_rand = (rand_uint64_r(random_state) % range->size) + range->start;
+	}
 
 	if (dist->type == DIST_ZIPF) {
 		// Permute the output. Otherwise, all common values will be near one another

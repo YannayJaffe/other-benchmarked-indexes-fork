@@ -156,6 +156,10 @@ static float rand_float() {
 	return ((float)rand_dword()) / UINT32_MAX;
 }
 
+static float rand_float_r(uint64_t* state) {
+    return ((float)rand_dword_r(state)) / UINT32_MAX;
+}
+
 static void random_bytes(uint8_t* buf, int count) {
 	int i;
 	for (i = 0;i < count;i++)
@@ -207,12 +211,12 @@ uint64_t get_uint64_flag(args_t* args, const char* name, uint64_t def_value);
 void dynamic_buffer_init(dynamic_buffer_t* buf);
 uint64_t dynamic_buffer_extend(dynamic_buffer_t* buf, uint64_t data_size);
 string_kv** create_string_kvs(dataset_t* dataset);
-int choose_ycsb_op_type(const float* op_probs);
+int choose_ycsb_op_type(const float* op_probs, uint64_t* random_state);
 uint64_t spec_read_latest_block_size(const ycsb_workload_spec* spec, int num_threads);
 void rand_uniform_init(rand_distribution* dist, uint64_t max);
 void rand_zipf_init(rand_distribution* dist, uint64_t max, double skew);
 void rand_zipf_rank_init(rand_distribution* dist, uint64_t max, double skew);
-uint64_t rand_dist(rand_distribution* dist);
+uint64_t rand_dist(rand_distribution* dist, uint64_t* random_state);
 int run_multiple_threads(void* (*thread_func)(void*), int num_threads, void* thread_contexts, int context_size);
 void report_mt(const char* exp_name, float duration, uint64_t num_ops, int num_threads);
 void report(const char* exp_name, float duration, uint64_t num_ops);
