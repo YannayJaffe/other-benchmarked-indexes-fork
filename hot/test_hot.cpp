@@ -1084,9 +1084,12 @@ const flag_spec_t FLAGS[] = {
 	{ "--profiler-pid", 1},
 	{ "--threads", 1},
 	{ "--dataset-size", 1},
-	{ "--ycsb-uniform-dist", 0},
 	{ NULL, 0}
 };
+
+bool contains(const std::string& str, const char* pattern){
+    return str.find(pattern) != std::string::npos;
+}
 
 int main(int argc, char** argv) {
 	int result;
@@ -1095,10 +1098,10 @@ int main(int argc, char** argv) {
 	int num_threads;
 	dataset_t dataset;
 	uint64_t dataset_size;
-	ycsb_workload_spec ycsb_workload;
+	ycsb_workload_spec ycsb_spec;
 	int is_ycsb = 0;
 	int is_mt_ycsb = 0;
-	const char* ycsb_exp_name;
+	std::string ycsb_name;
 	args_t* args = parse_args((flag_spec_t*) FLAGS, argc, argv);
 
 	if (args == NULL) {
@@ -1126,6 +1129,11 @@ int main(int argc, char** argv) {
 	}
 	dataset_name = args->args[1];
 	num_threads = get_int_flag(args, "--threads", DEFAULT_NUM_THREADS);
+    std::string test_name_str = test_name;
+    auto is_mt = test_name_str.find("mt-") == 0;
+    if (!is_mt) {
+        num_threads = 1;
+    }
 
 	if (!strcmp(test_name, "pos-lookup")) {
 		seed_and_print();
@@ -1177,89 +1185,82 @@ int main(int argc, char** argv) {
         bench_delete(dataset_name);
         return 0;
     }
-	if (!strcmp(test_name, "ycsb-a")) {
-		ycsb_workload = YCSB_A_SPEC;
-		is_ycsb = 1;
-		ycsb_exp_name = "ycsb-a HOT";
-	}
-	if (!strcmp(test_name, "ycsb-b")) {
-		ycsb_workload = YCSB_B_SPEC;
-		is_ycsb = 1;
-        ycsb_exp_name = "ycsb-b HOT";
-	}
-	if (!strcmp(test_name, "ycsb-c")) {
-		ycsb_workload = YCSB_C_SPEC;
-		is_ycsb = 1;
-        ycsb_exp_name = "ycsb-c HOT";
-	}
-	if (!strcmp(test_name, "ycsb-d")) {
-		ycsb_workload = YCSB_D_SPEC;
-		is_ycsb = 1;
-        ycsb_exp_name = "ycsb-d HOT";
-	}
-	if (!strcmp(test_name, "ycsb-e")) {
-		ycsb_workload = YCSB_E_SPEC;
-		is_ycsb = 1;
-        ycsb_exp_name = "ycsb-e HOT";
-	}
-	if (!strcmp(test_name, "ycsb-f")) {
-		ycsb_workload = YCSB_F_SPEC;
-		is_ycsb = 1;
-        ycsb_exp_name = "ycsb-f HOT";
-	}
-	if (!strcmp(test_name, "mt-ycsb-a")) {
-		ycsb_workload = YCSB_A_SPEC;
-		is_mt_ycsb = 1;
-        ycsb_exp_name = "mt-ycsb-a HOT";
-	}
-	if (!strcmp(test_name, "mt-ycsb-b")) {
-		ycsb_workload = YCSB_B_SPEC;
-		is_mt_ycsb = 1;
-        ycsb_exp_name = "mt-ycsb-b HOT";
-	}
-	if (!strcmp(test_name, "mt-ycsb-c")) {
-		ycsb_workload = YCSB_C_SPEC;
-		is_mt_ycsb = 1;
-        ycsb_exp_name = "mt-ycsb-c HOT";
-	}
-	if (!strcmp(test_name, "mt-ycsb-d")) {
-		ycsb_workload = YCSB_D_SPEC;
-		is_mt_ycsb = 1;
-        ycsb_exp_name = "mt-ycsb-d HOT";
-	}
-	if (!strcmp(test_name, "mt-ycsb-e")) {
-		ycsb_workload = YCSB_E_SPEC;
-		is_mt_ycsb = 1;
-        ycsb_exp_name = "mt-ycsb-e HOT";
-	}
-	if (!strcmp(test_name, "mt-ycsb-f")) {
-		ycsb_workload = YCSB_F_SPEC;
-		is_mt_ycsb = 1;
-        ycsb_exp_name = "mt-ycsb-f HOT";
-	}
-	if ((is_ycsb || is_mt_ycsb) && has_flag(args, "--ycsb-uniform-dist"))
-		ycsb_workload.distribution = DIST_UNIFORM;
 
-	if (is_ycsb) {
-		ycsb(dataset_name, &ycsb_workload, ycsb_exp_name);
-		return 0;
-	}
+    if (!strcmp(test_name, "mt-insert")) {
+        mt_insert(dataset_name, num_threads);
+        return 0;
+    }
 
-	if (is_mt_ycsb) {
-		mt_ycsb(dataset_name, &ycsb_workload, num_threads, ycsb_exp_name);
-		return 0;
-	}
-
-	if (!strcmp(test_name, "mt-insert")) {
-		mt_insert(dataset_name, num_threads);
-		return 0;
-	}
     if (!strcmp(test_name, "mt-delete")) {
         printf("Error: HOT does not support multithreaded deletions");
         return 0;
     }
-	if (!strcmp(test_name, "mem-usage")) {
-		mem_usage(dataset_name);
+    if (!strcmp(test_name, "mem-usage")) {
+        mem_usage(dataset_name);
+        return 0;
+    }
+
+    bool zipf_ycsb = false;
+    std::string ycsb_variant;
+
+    if (contains(test_name_str, "ycsb")) {
+        if (contains(test_name_str, "zipf")) {
+            zipf_ycsb = true;
+        } else if (contains(test_name_str, "uniform")) {
+            zipf_ycsb = false;
+        } else {
+            printf("ycsb must be either zipf or uniform!\n");
+            return 1;
+        }
+        if (contains(test_name_str, "ycsb-a")){
+            ycsb_spec = YCSB_A_SPEC;
+            ycsb_variant = "ycsb-a";
+        } else if (contains(test_name_str, "ycsb-b")) {
+            ycsb_spec = YCSB_B_SPEC;
+            ycsb_variant = "ycsb-b";
+        } else if (contains(test_name_str, "ycsb-c")) {
+            ycsb_spec = YCSB_C_SPEC;
+            ycsb_variant = "ycsb-c";
+        } else if (contains(test_name_str, "ycsb-d")) {
+            ycsb_spec = YCSB_D_SPEC;
+            ycsb_variant = "ycsb-d";
+        } else if (contains(test_name_str, "ycsb-e")) {
+            ycsb_spec = YCSB_E_SPEC;
+            ycsb_variant = "ycsb-e";
+        } else if (contains(test_name_str, "ycsb-f")) {
+            ycsb_spec = YCSB_F_SPEC;
+            ycsb_variant = "ycsb-f";
+        } else {
+            printf("ycsb must be either a,b,c,d,e,f\n");
+            return 1;
+        }
+        if (is_mt) {
+            ycsb_name = "mt-";
+            is_mt_ycsb = 1;
+            is_ycsb = 0;
+        } else {
+            ycsb_name = "";
+            is_mt_ycsb = 0;
+            is_ycsb = 1;
+        }
+        ycsb_name += ycsb_variant;
+        if (zipf_ycsb){
+            ycsb_name += "-zipf";
+            ycsb_spec.distribution = DIST_ZIPF;
+        } else {
+            ycsb_name += "-uniform";
+            ycsb_spec.distribution = DIST_UNIFORM;
+        }
+        ycsb_name += " HOT";
+    }
+
+	if (is_ycsb) {
+		ycsb(dataset_name, &ycsb_spec, ycsb_name.c_str());
+		return 0;
+	}
+
+	if (is_mt_ycsb) {
+		mt_ycsb(dataset_name, &ycsb_spec, num_threads, ycsb_name.c_str());
 		return 0;
 	}
 
