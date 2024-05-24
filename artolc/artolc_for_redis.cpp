@@ -5,8 +5,7 @@
 
 void load_key(TID tid, Key &key) {
 	redis_string_kv_with_len* kv = (redis_string_kv_with_len*) tid;
-	key.data = (uint8_t*) (kv->key);
-	key.len = kv->key_size;
+	key.set(kv->key, kv->key_size);
 }
 
 
@@ -42,9 +41,7 @@ void artolc_insert(void* tree, redis_string_kv_with_len* kv) {
 redis_string_kv_with_len* artolc_lookup(void* tree, uint8_t* key, uint32_t key_len) {
 	Key artolc_key;
 	ArtolcAndThreadInfo* artolc = (ArtolcAndThreadInfo*) tree;
-
-	artolc_key.data = key;
-	artolc_key.len = key_len;
+    artolc_key.set(key, key_len);
 	TID result = artolc->tree.lookup(artolc_key, artolc->thread_info);
 	if (result == 0)
 		return NULL;
@@ -57,16 +54,10 @@ uint64_t artolc_range_from(void* tree, uint8_t* start_key, uint32_t start_key_le
 	Key dummy;
 	std::size_t num_results;
 	ArtolcAndThreadInfo* artolc = (ArtolcAndThreadInfo*) tree;
-
-	artolc_start_key.data = start_key;
-	artolc_start_key.len = start_key_len;
+    artolc_start_key.set(start_key, start_key_len);
 	artolc->tree.lookupRange(artolc_start_key, artolc->max_key, dummy, (TID*) results,
 							 max_results, num_results, artolc->thread_info);
 
-	// If <len> is large, the destructor for Key will assume that it owns the buffer used
-	// for the key data and will attempt to free it. We don't own <start_key>, so make sure
-	// it doesn't get freed.
-	artolc_start_key.len = 0;
 
 	return num_results;
 }

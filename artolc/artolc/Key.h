@@ -12,12 +12,13 @@ class Key {
 public:
 
     static constexpr uint32_t stackLen = 128;
+private:
     uint32_t len = 0;
 
     uint8_t *data;
 
     uint8_t stackKey[stackLen];
-
+public:
     Key(uint64_t k) { setInt(k); }
 
     void setInt(uint64_t k) { data = stackKey; len = 8; *reinterpret_cast<uint64_t*>(stackKey) = __builtin_bswap64(k); }
@@ -31,6 +32,8 @@ public:
     Key(Key &&key);
 
     void set(const char bytes[], const std::size_t length);
+
+    void set(const uint8_t *bytes, const std::size_t length);
 
     void operator=(const char key[]);
 
@@ -80,9 +83,14 @@ inline Key::Key(Key &&key) {
         memcpy(stackKey, key.stackKey, key.len);
         data = stackKey;
     }
+    key.len = 0;
 }
 
 inline void Key::set(const char bytes[], const std::size_t length) {
+    set(reinterpret_cast<const uint8_t*>(bytes), length);
+}
+
+inline void Key::set(const uint8_t *bytes, const std::size_t length) {
     if (len > stackLen) {
         delete[] data;
     }
@@ -100,7 +108,7 @@ inline void Key::operator=(const char key[]) {
     if (len > stackLen) {
         delete[] data;
     }
-    len = strlen(key);
+    len = strlen(key) + 1;
     if (len <= stackLen) {
         memcpy(stackKey, key, len);
         data = stackKey;

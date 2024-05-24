@@ -249,8 +249,7 @@ void *mt_pos_lookup_thread(void *arg) {
     buf_pos = ctx->keys_buf;
     for (i = 0; i < ctx->num_keys; i++) {
         blob_t *target_key = (blob_t *) buf_pos;
-        key.data = target_key->bytes;
-        key.len = target_key->size;
+        key.set(target_key->bytes, target_key->size);
         TID result = ctx->tree->lookup(key, thread_info);
         if (!ctx->false_queries && result == 0) {
             printf("Error: a key was not found!\n");
@@ -583,8 +582,7 @@ void *ycsb_thread(void *arg) {
         switch (op->type) {
             case YCSB_READ: {
                 blob_t *target_key = (blob_t *) (ctx->workload.data_buf + op->data_pos);
-                key.len = target_key->size;
-                key.data = target_key->bytes;
+                key.set(target_key-> bytes, target_key->size);
                 TID result = ctx->tree->lookup(key, thread_info);
                 if (result == 0) {
                     printf("Error: a key was not found\n");
@@ -628,8 +626,7 @@ void *ycsb_thread(void *arg) {
                     break;
                 }
 
-                key.len = target_key->size;
-                key.data = target_key->bytes;
+                key.set(target_key->bytes, target_key->size);
                 TID result = ctx->tree->lookup(key, thread_info);
                 if (result == 0) {
                     printf("Error: a key was not found\n");
@@ -653,8 +650,7 @@ void *ycsb_thread(void *arg) {
 
             case YCSB_RMW: {
                 kv_t *kv = (kv_t *) (ctx->workload.data_buf + op->data_pos);
-                key.len = kv->key_size;
-                key.data = kv->kv;
+                load_key((TID) kv, key);
 
                 // Find existing value
                 TID result = ctx->tree->lookup(key, thread_info);
@@ -681,8 +677,8 @@ void *ycsb_thread(void *arg) {
                 uint64_t range_size = (rand_dword_r(&rand_state) % 100) + 1;
                 blob_t *start_key = (blob_t *) (ctx->workload.data_buf + op->data_pos);
 
-                key.len = start_key->size;
-                key.data = start_key->bytes;
+                key.set(start_key->bytes, start_key->size);
+
                 ctx->tree->lookupRange(key, max_key, dummy, range_results, range_size,
                                        num_range_results, thread_info);
 
