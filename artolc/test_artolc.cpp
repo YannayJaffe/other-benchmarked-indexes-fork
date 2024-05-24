@@ -776,16 +776,19 @@ const flag_spec_t FLAGS[] = {
         {"--threads",           1},
         {"--dataset-size",      1},
         {"--profiler-pid",      1},
-        {"--ycsb-uniform-dist", 0},
         {NULL,                  0}
 };
+
+bool contains(const std::string& str, const char* pattern){
+    return str.find(pattern) != std::string::npos;
+}
 
 int main(int argc, char **argv) {
     int result;
     int num_threads;
     int is_ycsb = 0;
     char *test_name;
-    const char *ycsb_name;
+    std::string ycsb_name;
     uint64_t dataset_size;
     dataset_t dataset;
     ycsb_workload_spec ycsb_spec;
@@ -842,71 +845,59 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if (!strcmp(test_name, "ycsb-a") || !strcmp(test_name, "mt-ycsb-a")) {
-        ycsb_spec = YCSB_A_SPEC;
-        is_ycsb = 1;
-        if (is_mt) {
-            ycsb_name = "mt-ycsb-a ART-OLC";
-        } else {
-            ycsb_name = "ycsb-a ART-OLC";
-        }
-    }
+    bool zipf_ycsb = false;
+    std::string ycsb_variant;
 
-    if (!strcmp(test_name, "ycsb-b") || !strcmp(test_name, "mt-ycsb-b")) {
-        ycsb_spec = YCSB_B_SPEC;
+    if (contains(test_name_str, "ycsb")) {
         is_ycsb = 1;
-        if (is_mt) {
-            ycsb_name = "mt-ycsb-b ART-OLC";
+        if (contains(test_name_str, "zipf")) {
+            zipf_ycsb = true;
+        } else if (contains(test_name_str, "uniform")) {
+            zipf_ycsb = false;
         } else {
-            ycsb_name = "ycsb-b ART-OLC";
+            printf("ycsb must be either zipf or uniform!\n");
+            return 1;
         }
-    }
-
-    if (!strcmp(test_name, "ycsb-c") || !strcmp(test_name, "mt-ycsb-c")) {
-        ycsb_spec = YCSB_C_SPEC;
-        is_ycsb = 1;
-        if (is_mt) {
-            ycsb_name = "mt-ycsb-c ART-OLC";
+        if (contains(test_name_str, "ycsb-a")){
+            ycsb_spec = YCSB_A_SPEC;
+            ycsb_variant = "ycsb-a";
+        } else if (contains(test_name_str, "ycsb-b")) {
+            ycsb_spec = YCSB_B_SPEC;
+            ycsb_variant = "ycsb-b";
+        } else if (contains(test_name_str, "ycsb-c")) {
+            ycsb_spec = YCSB_C_SPEC;
+            ycsb_variant = "ycsb-c";
+        } else if (contains(test_name_str, "ycsb-d")) {
+            ycsb_spec = YCSB_D_SPEC;
+            ycsb_variant = "ycsb-d";
+        } else if (contains(test_name_str, "ycsb-e")) {
+            ycsb_spec = YCSB_E_SPEC;
+            ycsb_variant = "ycsb-e";
+        } else if (contains(test_name_str, "ycsb-f")) {
+            ycsb_spec = YCSB_F_SPEC;
+            ycsb_variant = "ycsb-f";
         } else {
-            ycsb_name = "ycsb-c ART-OLC";
+            printf("ycsb must be either a,b,c,d,e,f\n");
+            return 1;
         }
-    }
-
-    if (!strcmp(test_name, "ycsb-d") || !strcmp(test_name, "mt-ycsb-d")) {
-        ycsb_spec = YCSB_D_SPEC;
-        is_ycsb = 1;
         if (is_mt) {
-            ycsb_name = "mt-ycsb-d ART-OLC";
+            ycsb_name = "mt-";
         } else {
-            ycsb_name = "ycsb-d ART-OLC";
+            ycsb_name = "";
         }
-    }
-
-    if (!strcmp(test_name, "ycsb-e") || !strcmp(test_name, "mt-ycsb-e")) {
-        ycsb_spec = YCSB_E_SPEC;
-        is_ycsb = 1;
-        if (is_mt) {
-            ycsb_name = "mt-ycsb-e ART-OLC";
+        ycsb_name += ycsb_variant;
+        if (zipf_ycsb){
+            ycsb_name += "-zipf";
+            ycsb_spec.distribution = DIST_ZIPF;
         } else {
-            ycsb_name = "ycsb-e ART-OLC";
+            ycsb_name += "-uniform";
+            ycsb_spec.distribution = DIST_UNIFORM;
         }
-    }
-
-    if (!strcmp(test_name, "ycsb-f") || !strcmp(test_name, "mt-ycsb-f")) {
-        ycsb_spec = YCSB_F_SPEC;
-        is_ycsb = 1;
-        if (is_mt) {
-            ycsb_name = "mt-ycsb-f ART-OLC";
-        } else {
-            ycsb_name = "ycsb-f ART-OLC";
-        }
+        ycsb_name += " ART-OLC";
     }
 
     if (is_ycsb) {
-        if (has_flag(args, "--ycsb-uniform-dist"))
-            ycsb_spec.distribution = DIST_UNIFORM;
-
-        test_ycsb(&dataset, &ycsb_spec, num_threads, ycsb_name, is_mt);
+        test_ycsb(&dataset, &ycsb_spec, num_threads, ycsb_name.c_str(), is_mt);
         return 0;
     }
 
