@@ -760,14 +760,8 @@ void test_ycsb(dataset_t *dataset, const ycsb_workload_spec *spec, unsigned int 
         thread_contexts[i].random_state = seed_and_print_r(i);
     }
     generate_mt_ycsb_workload(thread_contexts, dataset, kv_ptrs, spec, num_threads);
-//    printf("\nInserting keys\n");
-//    load_kvs_mt(tree, kv_ptrs, thread_contexts[0].workload.initial_num_keys);
+    printf("\nInserting keys\n");
     load_kvs_mt(tree, kv_ptrs, dataset->num_keys);
-//    printf("Inserting...\n");
-//    for (i = 0; i < dataset->num_keys; i++) {
-//        load_key((TID) kv_ptrs[i], key);
-//        tree.insert(key, (TID) kv_ptrs[i], thread_info);
-//    }
     printf("Running workloads...\n");
     notify_critical_section_start();
     stopwatch_start(&timer);
