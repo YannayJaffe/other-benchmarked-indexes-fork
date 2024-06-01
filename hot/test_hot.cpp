@@ -149,6 +149,7 @@ void load_dataset(char* dataset_name) {
 }
 
 void insert_keys(string_hot_t& trie, ct_key* keys, uint64_t num_keys) {
+    printf("Loading %d keys...\n", (int) num_keys);
     for(auto i=0; i<num_keys; i++){
         if(!trie.insert((const char*)keys[i].bytes)){
             printf("Error: tried to insert duplicate keys!\n");
@@ -158,6 +159,7 @@ void insert_keys(string_hot_t& trie, ct_key* keys, uint64_t num_keys) {
 }
 
 void insert_kvs(kv_hot_t& trie, string_kv** kvs, uint64_t num_keys) {
+    printf("Loading %d keys...\n", (int) num_keys);
     for(auto i=0; i<num_keys; i++){
         if(!trie.insert(kvs[i])){
             printf("Error: tried to insert duplicate keys!\n");
