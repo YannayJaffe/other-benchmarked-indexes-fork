@@ -149,7 +149,7 @@ void load_kvs_mt(ART_OLC::Tree& tree, kv_t **kv_ptrs, uint64_t num_keys) {
         thread_contexts[i].num_keys = last_kv - first_kv;
         thread_contexts[i].tree = &tree;
     }
-    printf("Inserting...\n");
+    printf("Loading %d keys...\n", (int) num_keys);
     run_multiple_threads(mt_insert_thread, num_threads, thread_contexts, sizeof(mt_insert_delete_thread_ctx));
 }
 
