@@ -367,12 +367,12 @@ void test_mem_usage(dataset_t *dataset) {
     kv_t **kv_ptrs;
     uint64_t start_mem, end_mem;
     uint64_t index_overhead;
-    ART_OLC::Tree tree(load_key);
-    auto thread_info = tree.getThreadInfo();
 
     kv_ptrs = read_kvs(dataset, DEFAULT_VALUE_SIZE);
 
     start_mem = virt_mem_usage();
+    ART_OLC::Tree tree(load_key);
+    auto thread_info = tree.getThreadInfo();
     for (i = 0; i < dataset->num_keys; i++) {
         load_key((TID) kv_ptrs[i], key);
         tree.insert(key, (TID) kv_ptrs[i], thread_info);
