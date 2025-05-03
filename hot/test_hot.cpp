@@ -65,7 +65,7 @@ void load_uint64(uint64_t num_keys) {
 	printf("Took %.2fs (%.0fns/key)\n", time_took, time_took / num_keys * 1.0e9);
 }
 
-void mem_usage(char* dataset_name) {
+void mem_usage(char* dataset_name, uint64_t dataset_size) {
 	dataset_t dataset;
 	int result;
 	uint64_t i;
@@ -74,10 +74,9 @@ void mem_usage(char* dataset_name) {
 	uint64_t keys_size = 0;
 	const char* all_keys;
 	const char* pos;
-	string_hot_t trie;
 
 	seed_and_print();
-	result = init_dataset(&dataset, dataset_name, DATASET_ALL_KEYS);
+	result = init_dataset(&dataset, dataset_name, dataset_size);
 	if (!result) {
 		printf("Error creating dataset.\n");
 		return;
@@ -89,8 +88,10 @@ void mem_usage(char* dataset_name) {
 		return;
 	}
 	pos = all_keys;
+
 	start_mem = virt_mem_usage();
-	for (i = 0;i < dataset.num_keys;i++) {
+    mt_string_hot_t trie;
+    for (i = 0;i < dataset.num_keys;i++) {
 		trie.insert(pos);
 		pos += strlen(pos) + 1;
 		keys_size += strlen(pos) + 1;
@@ -1198,7 +1199,8 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (!strcmp(test_name, "mem-usage")) {
-        mem_usage(dataset_name);
+        dataset_size = get_uint64_flag(args, "--dataset-size", DATASET_ALL_KEYS);
+        mem_usage(dataset_name, dataset_size);
         return 0;
     }
 
